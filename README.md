@@ -22,6 +22,7 @@
 - 通用配置发现器会递归识别任意深度的 `keys`、`hotkey`、`keybind`、`shortcut` 与 `binding` 结构；还会结合 Mod i18n 和 JAR 内 Hotkey/Keybind 类发现尚未写入 JSON 的默认快捷键，仅持久化用户实际修改的覆盖项。
 - 同一发现器也会扫描 Config、Features、Settings、Toggle 与 Options 配置声明，补出尚未写入 JSON 的布尔功能；使用“Mod 默认 / 强制启用 / 强制禁用”三态控件，未手动覆盖的功能不会被写入。
 - Mod 配置页不再局限于内置适配名单：会按已安装 Mod 的 ID、名称、配置目录和文件名自动收录拥有独立配置的 Mod。当前只展示能够结构化编辑的 JSON 标量、开关和快捷键；无法在页面清晰修改的内部数组/对象，以及独立 TOML、JSON5、YAML、properties、conf 与 cfg 不再显示，避免把内部代码或文件清单误当成配置界面。
+- 保存 Mod 配置草稿时会清除副本继承的只读、隐藏和系统属性；单个文件保存失败会显示具体错误，不再因未处理异常退出程序。
 - 写入前自动备份 `options.txt`，仅修改目标配置项。
 
 ## 构建与运行

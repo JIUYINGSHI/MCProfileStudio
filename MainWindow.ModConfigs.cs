@@ -864,30 +864,41 @@ public partial class MainWindow
 
     private void SaveModConfigProfile_Click(object sender, RoutedEventArgs e)
     {
-        if (modConfigDrafts.Count == 0) return; var root = Path.Combine(ModConfigProfilesRoot, SafeProfileName(settings.ActiveModConfigProfile)); Directory.CreateDirectory(root);
-        foreach (var draft in modConfigDrafts)
+        if (modConfigDrafts.Count == 0) return;
+        try
         {
-            var destination = Path.Combine(root, draft.Definition.Id); if (Directory.Exists(destination)) Directory.Delete(destination, true); Directory.CreateDirectory(destination);
-            if (draft.IsAutoDiscovered)
+            var root = Path.Combine(ModConfigProfilesRoot, SafeProfileName(settings.ActiveModConfigProfile)); Directory.CreateDirectory(root);
+            foreach (var draft in modConfigDrafts)
             {
-                var configRoot = Path.Combine(instance, "config"); var filesRoot = Path.Combine(destination, "files");
-                foreach (var file in draft.ConfigFiles.Where(File.Exists))
+                var destination = Path.Combine(root, draft.Definition.Id);
+                if (Directory.Exists(destination)) { MakeTreeWritable(destination); Directory.Delete(destination, true); }
+                Directory.CreateDirectory(destination);
+                if (draft.IsAutoDiscovered)
                 {
-                    var relative = Path.GetRelativePath(configRoot, file); var target = Path.Combine(filesRoot, relative); Directory.CreateDirectory(Path.GetDirectoryName(target)!); File.Copy(file, target, true);
+                    var configRoot = Path.Combine(instance, "config"); var filesRoot = Path.Combine(destination, "files");
+                    foreach (var file in draft.ConfigFiles.Where(File.Exists))
+                    {
+                        var relative = Path.GetRelativePath(configRoot, file); var target = Path.Combine(filesRoot, relative); Directory.CreateDirectory(Path.GetDirectoryName(target)!); File.Copy(file, target, true); MakeFileWritable(target);
+                    }
+                    if (draft.Json != null)
+                    {
+                        var primarySource = Directory.Exists(draft.SourcePath) ? Path.Combine(draft.SourcePath, draft.Definition.PrimaryJson) : draft.SourcePath;
+                        var primaryTarget = Path.Combine(filesRoot, Path.GetRelativePath(configRoot, primarySource)); Directory.CreateDirectory(Path.GetDirectoryName(primaryTarget)!);
+                        WriteDraftJson(draft, primaryTarget);
+                    }
+                    continue;
                 }
-                if (draft.Json != null)
-                {
-                    var primarySource = Directory.Exists(draft.SourcePath) ? Path.Combine(draft.SourcePath, draft.Definition.PrimaryJson) : draft.SourcePath;
-                    var primaryTarget = Path.Combine(filesRoot, Path.GetRelativePath(configRoot, primarySource)); Directory.CreateDirectory(Path.GetDirectoryName(primaryTarget)!);
-                    WriteDraftJson(draft, primaryTarget);
-                }
-                continue;
+                if (Directory.Exists(draft.SourcePath)) CopyDirectory(draft.SourcePath, destination); else { var target = Path.Combine(destination, Path.GetFileName(draft.SourcePath)); File.Copy(draft.SourcePath, target, true); MakeFileWritable(target); }
+                var primary = draft.Definition.PrimaryJson.Length > 0 ? Path.Combine(destination, draft.Definition.PrimaryJson) : Path.Combine(destination, Path.GetFileName(draft.SourcePath));
+                if (draft.Json != null) WriteDraftJson(draft, primary);
             }
-            if (Directory.Exists(draft.SourcePath)) CopyDirectory(draft.SourcePath, destination); else File.Copy(draft.SourcePath, Path.Combine(destination, Path.GetFileName(draft.SourcePath)), true);
-            var primary = draft.Definition.PrimaryJson.Length > 0 ? Path.Combine(destination, draft.Definition.PrimaryJson) : Path.Combine(destination, Path.GetFileName(draft.SourcePath));
-            if (draft.Json != null) WriteDraftJson(draft, primary);
+            SettingsStore.Save(settings); RefreshModConfigProfiles(); StatusText.Text = $"已保存 Mod 配置：{settings.ActiveModConfigProfile}";
         }
-        SettingsStore.Save(settings); RefreshModConfigProfiles(); StatusText.Text = $"已保存 Mod 配置：{settings.ActiveModConfigProfile}";
+        catch (Exception ex)
+        {
+            StatusText.Text = "保存 Mod 配置草稿失败，原配置未被修改";
+            MessageBox.Show($"保存 Mod 配置草稿失败：\n{ex.Message}\n\n游戏实例中的原配置没有被修改。", "保存失败", MessageBoxButton.OK, MessageBoxImage.Error);
+        }
     }
 
     private static void WriteDraftJson(ModConfigDraft draft, string target)
@@ -905,7 +916,22 @@ public partial class MainWindow
             var usesValueWrapper = category.Any(pair => pair.Value is JsonObject wrapper && wrapper.Count == 1 && wrapper["value"] is JsonValue wrapped && wrapped.TryGetValue<bool>(out _));
             category[option.Key] = usesValueWrapper ? new JsonObject { ["value"] = item.Value } : JsonValue.Create(item.Value);
         }
+        MakeFileWritable(target);
         File.WriteAllText(target, draft.Json.ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
+    }
+
+    private static void MakeFileWritable(string path)
+    {
+        if (!File.Exists(path)) return;
+        var attributes = File.GetAttributes(path);
+        var blockedAttributes = FileAttributes.ReadOnly | FileAttributes.Hidden | FileAttributes.System;
+        if ((attributes & blockedAttributes) != 0) File.SetAttributes(path, attributes & ~blockedAttributes);
+    }
+
+    private static void MakeTreeWritable(string path)
+    {
+        if (!Directory.Exists(path)) return;
+        foreach (var file in Directory.EnumerateFiles(path, "*", SearchOption.AllDirectories)) MakeFileWritable(file);
     }
 
     private void LoadModConfigProfileDraft()
