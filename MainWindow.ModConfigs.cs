@@ -89,7 +89,9 @@ public partial class MainWindow
         var centerGrid = new Grid(); centerGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto }); centerGrid.RowDefinitions.Add(new RowDefinition());
         modConfigSearch = new TextBox { ToolTip = "搜索选项名称或当前值", Margin = new Thickness(0, 0, 0, 10) };
         modConfigSearch.TextChanged += (_, _) => RenderSelectedModConfig(); Grid.SetRow(modConfigSearch, 0); centerGrid.Children.Add(modConfigSearch);
-        modConfigTabs = new TabControl { Background = Brushes.Transparent, BorderThickness = new Thickness(0) }; Grid.SetRow(modConfigTabs, 1); centerGrid.Children.Add(modConfigTabs);
+        modConfigTabs = new TabControl { Background = Brushes.Transparent, BorderThickness = new Thickness(0) };
+        modConfigTabs.PreviewMouseWheel += ModConfigTabs_PreviewMouseWheel;
+        Grid.SetRow(modConfigTabs, 1); centerGrid.Children.Add(modConfigTabs);
         center.Child = centerGrid; Grid.SetColumn(center, 1); modConfigsPage.Children.Add(center);
 
         var right = MakeModConfigCard();
@@ -166,6 +168,19 @@ public partial class MainWindow
     }
 
     private void ModConfigModList_SelectionChanged(object sender, SelectionChangedEventArgs e) => RenderSelectedModConfig();
+
+    private void ModConfigTabs_PreviewMouseWheel(object sender, MouseWheelEventArgs e)
+    {
+        if (modConfigTabs?.Template.FindName("HeaderScroll", modConfigTabs) is not ScrollViewer header || header.ScrollableWidth <= 0 || e.OriginalSource is not DependencyObject source || !IsVisualDescendantOf(source, header)) return;
+        header.ScrollToHorizontalOffset(Math.Clamp(header.HorizontalOffset - e.Delta * .65, 0, header.ScrollableWidth));
+        e.Handled = true;
+    }
+
+    private static bool IsVisualDescendantOf(DependencyObject child, DependencyObject ancestor)
+    {
+        for (DependencyObject? current = child; current != null; current = VisualTreeHelper.GetParent(current)) if (ReferenceEquals(current, ancestor)) return true;
+        return false;
+    }
 
     private void RenderSelectedModConfig()
     {
