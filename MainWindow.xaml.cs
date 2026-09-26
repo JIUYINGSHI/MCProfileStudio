@@ -354,6 +354,22 @@ public partial class MainWindow : Window
         return new[] { R(top), R("` 1 2 3 4 5 6 7 8 9 0 - = BACKSPACE INS HOME PGUP NUMLOCK / * -"), R("TAB Q W E R T Y U I O P [ ] \\ DEL END PGDN 7 8 9 +"), R("CAPS A S D F G H J K L ; ' ENTER 4 5 6 +"), R("LSHIFT Z X C V B N M , . / RSHIFT UP 1 2 3 ENTER"), R("LCTRL LWIN LALT SPACE RALT FN RCTRL LEFT DOWN RIGHT 0 . ENTER") };
     }
 
+    private void TitleBar_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+    {
+        if (e.ClickCount == 2) { ToggleWindowState(); return; }
+        if (WindowState == WindowState.Maximized)
+        {
+            var mouse = PointToScreen(e.GetPosition(this)); var ratio = e.GetPosition(this).X / Math.Max(1, ActualWidth);
+            WindowState = WindowState.Normal; Left = mouse.X - Width * ratio; Top = Math.Max(0, mouse.Y - 24);
+        }
+        try { DragMove(); } catch { }
+    }
+
+    private void MinimizeWindow_Click(object sender, RoutedEventArgs e) => WindowState = WindowState.Minimized;
+    private void MaximizeWindow_Click(object sender, RoutedEventArgs e) => ToggleWindowState();
+    private void CloseWindow_Click(object sender, RoutedEventArgs e) => Close();
+    private void ToggleWindowState() => WindowState = WindowState == WindowState.Maximized ? WindowState.Normal : WindowState.Maximized;
+
     [DllImport("dwmapi.dll")] private static extern int DwmSetWindowAttribute(IntPtr hwnd, int attribute, ref int value, int size);
     private void EnableMica() { try { var hwnd = new WindowInteropHelper(this).Handle; var enabled = 1; DwmSetWindowAttribute(hwnd, 20, ref enabled, sizeof(int)); var backdrop = 2; DwmSetWindowAttribute(hwnd, 38, ref backdrop, sizeof(int)); } catch { } }
 }

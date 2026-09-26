@@ -131,13 +131,13 @@ public partial class MainWindow
 
     private static Border MakeModConfigCard(Thickness? margin = null) => new()
     {
-        Margin = margin ?? new Thickness(0, 0, 0, 14), Padding = new Thickness(18), CornerRadius = new CornerRadius(18),
-        Background = new SolidColorBrush(Color.FromArgb(205, 12, 24, 34)), BorderBrush = new SolidColorBrush(Color.FromArgb(80, 116, 154, 184)), BorderThickness = new Thickness(1)
+        Margin = margin ?? new Thickness(0, 0, 0, 14), Padding = new Thickness(18), CornerRadius = new CornerRadius(14),
+        Background = new SolidColorBrush(Color.FromArgb(114, 0, 0, 0)), BorderBrush = new SolidColorBrush(Color.FromArgb(42, 255, 255, 255)), BorderThickness = new Thickness(1)
     };
 
     private Button MakeActionButton(string text, RoutedEventHandler handler, Thickness margin, bool primary = true)
     {
-        var button = new Button { Content = text, Margin = margin, Background = new SolidColorBrush(primary ? Color.FromRgb(0, 120, 212) : Color.FromRgb(56, 71, 86)) };
+        var button = new Button { Content = text, Margin = margin, Background = new SolidColorBrush(primary ? Color.FromArgb(210, 0, 120, 212) : Color.FromArgb(18, 255, 255, 255)) };
         button.Click += handler; return button;
     }
 
