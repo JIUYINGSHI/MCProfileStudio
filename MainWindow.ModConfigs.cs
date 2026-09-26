@@ -178,33 +178,26 @@ public partial class MainWindow
             if (modConfigTabs.Items.Count > 0) modConfigTabs.SelectedIndex = 0;
             return;
         }
-        var functionPanel = new StackPanel { Margin = new Thickness(4) };
-        var hotkeyPanel = new StackPanel { Margin = new Thickness(4) };
+        var categoryPanels = new Dictionary<string, StackPanel>(StringComparer.OrdinalIgnoreCase);
         foreach (var category in draft.Json)
         {
             if (category.Key == "TweakHotkeys" && draft.Json["TweakToggles"] is JsonObject) continue;
             if (category.Key == "DisableHotkeys" && draft.Json["DisableToggles"] is JsonObject) continue;
-            var functionGroup = new StackPanel();
-            var hotkeyGroup = new StackPanel();
+            var panel = new StackPanel { Margin = new Thickness(4) };
             if (category.Value is JsonObject group)
             {
-                RenderJsonObjectRows(draft, category.Key, group, functionGroup, hotkeyGroup, search, "");
+                RenderJsonObjectRows(draft, category.Key, group, panel, search, "");
             }
-            else
-            {
-                var target = IsHotkeyEntry(category.Key, category.Value, null) ? hotkeyGroup : functionGroup;
-                target.Children.Add(BuildModOptionRow(draft, category.Key, draft.Json, category.Key, category.Value));
-            }
-            AppendMergedGroup(functionPanel, functionGroup, TranslateCategory(draft, category.Key));
-            AppendMergedGroup(hotkeyPanel, hotkeyGroup, TranslateCategory(draft, category.Key));
+            else panel.Children.Add(BuildModOptionRow(draft, category.Key, draft.Json, category.Key, category.Value));
+            if (panel.Children.Count > 0) categoryPanels[category.Key] = panel;
         }
         var existingHotkeys = CollectExistingHotkeyNames(draft.Json);
         var discovered = draft.DiscoveredHotkeys.Where(key => !existingHotkeys.Contains(key)).Where(key => search.Length == 0 || TranslateConfigOption(draft, "Hotkeys", key).Label.Contains(search, StringComparison.OrdinalIgnoreCase) || key.Contains(search, StringComparison.OrdinalIgnoreCase)).ToList();
         if (discovered.Count > 0)
         {
-            var group = new StackPanel();
-            foreach (var key in discovered) group.Children.Add(BuildDiscoveredHotkeyRow(draft, key));
-            AppendMergedGroup(hotkeyPanel, group, "其他快捷键");
+            var category = draft.Definition.Id == "tweakeroo" && draft.Json.ContainsKey("GenericHotkeys") ? "GenericHotkeys" : "Hotkeys";
+            if (!categoryPanels.TryGetValue(category, out var panel)) categoryPanels[category] = panel = new StackPanel { Margin = new Thickness(4) };
+            foreach (var key in discovered) panel.Children.Add(BuildDiscoveredHotkeyRow(draft, key));
         }
         var existingOptions = CollectExistingConfigNames(draft.Json);
         var discoveredOptions = draft.DiscoveredOptions
@@ -213,15 +206,13 @@ public partial class MainWindow
             .ToList();
         if (discoveredOptions.Count > 0)
         {
-            var group = new StackPanel();
-            foreach (var option in discoveredOptions) group.Children.Add(BuildDiscoveredBooleanRow(draft, option));
-            AppendMergedGroup(functionPanel, group, "其他功能");
+            foreach (var option in discoveredOptions)
+            {
+                if (!categoryPanels.TryGetValue(option.Category, out var panel)) categoryPanels[option.Category] = panel = new StackPanel { Margin = new Thickness(4) };
+                panel.Children.Add(BuildDiscoveredBooleanRow(draft, option));
+            }
         }
-        var tabs = new List<TabItem>
-        {
-            new() { Header = $"功能  {CountRows(functionPanel)}", Content = MakeModConfigScroll(functionPanel) },
-            new() { Header = $"快捷键  {CountRows(hotkeyPanel)}", Content = MakeModConfigScroll(hotkeyPanel) }
-        };
+        var tabs = categoryPanels.Select(category => new TabItem { Header = TranslateCategory(draft, category.Key), Content = MakeModConfigScroll(category.Value) }).ToList();
         modConfigViewCache[draft] = (search, settings.ModConfigLanguage, tabs);
         foreach (var tab in tabs) modConfigTabs.Items.Add(tab);
         if (modConfigTabs.Items.Count > 0) modConfigTabs.SelectedIndex = 0;
@@ -229,16 +220,7 @@ public partial class MainWindow
 
     private static ScrollViewer MakeModConfigScroll(Panel panel) => new() { Content = panel, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled, Padding = new Thickness(0, 10, 2, 0) };
 
-    private static void AppendMergedGroup(Panel destination, Panel source, string title)
-    {
-        if (source.Children.Count == 0) return;
-        destination.Children.Add(new TextBlock { Text = title, Foreground = new SolidColorBrush(Color.FromRgb(103, 190, 245)), FontSize = 14, FontWeight = FontWeights.SemiBold, Margin = new Thickness(4, 8, 4, 8) });
-        while (source.Children.Count > 0) { var child = source.Children[0]; source.Children.RemoveAt(0); destination.Children.Add(child); }
-    }
-
-    private static int CountRows(Panel panel) => panel.Children.OfType<Border>().Count();
-
-    private void RenderJsonObjectRows(ModConfigDraft draft, string category, JsonObject group, Panel functionPanel, Panel hotkeyPanel, string search, string path)
+    private void RenderJsonObjectRows(ModConfigDraft draft, string category, JsonObject group, Panel panel, string search, string path)
     {
         foreach (var option in group)
         {
@@ -246,22 +228,18 @@ public partial class MainWindow
             var valueText = option.Value?.ToJsonString(new JsonSerializerOptions { WriteIndented = false }) ?? "null";
             if (option.Value is JsonObject nested && !IsEditableConfigObject(nested))
             {
-                RenderJsonObjectRows(draft, category, nested, functionPanel, hotkeyPanel, search, fullPath);
-                continue;
+                var nestedPanel = new StackPanel { Margin = new Thickness(10, 3, 0, 5) };
+                RenderJsonObjectRows(draft, category, nested, nestedPanel, search, fullPath);
+                if (nestedPanel.Children.Count == 0) continue;
+                panel.Children.Add(new TextBlock { Text = HumanizeConfigName(option.Key), ToolTip = fullPath, Foreground = new SolidColorBrush(Color.FromRgb(103, 190, 245)), FontWeight = FontWeights.SemiBold, Margin = new Thickness(4, 8, 4, 7) });
+                panel.Children.Add(nestedPanel); continue;
             }
             if (search.Length > 0 && !(fullPath + valueText + TranslateConfigOption(draft, category, option.Key).Label).Contains(search, StringComparison.OrdinalIgnoreCase)) continue;
             JsonObject? pairedHotkey = null;
             if (category == "TweakToggles" && draft.Json?["TweakHotkeys"] is JsonObject tweakHotkeys) pairedHotkey = tweakHotkeys[option.Key] as JsonObject;
             if (category == "DisableToggles" && draft.Json?["DisableHotkeys"] is JsonObject disableHotkeys) pairedHotkey = disableHotkeys[option.Key] as JsonObject;
-            var target = IsHotkeyEntry(category, option.Value, pairedHotkey) ? hotkeyPanel : functionPanel;
-            target.Children.Add(BuildModOptionRow(draft, category, group, option.Key, option.Value, pairedHotkey));
+            panel.Children.Add(BuildModOptionRow(draft, category, group, option.Key, option.Value, pairedHotkey));
         }
-    }
-
-    private static bool IsHotkeyEntry(string category, JsonNode? value, JsonObject? pairedHotkey)
-    {
-        if (pairedHotkey != null || category.Contains("hotkey", StringComparison.OrdinalIgnoreCase) || category.Contains("keybind", StringComparison.OrdinalIgnoreCase) || category.Contains("shortcut", StringComparison.OrdinalIgnoreCase)) return true;
-        return TryResolveHotkey(value, out _, out _);
     }
 
     private static bool IsEditableConfigObject(JsonObject value)
