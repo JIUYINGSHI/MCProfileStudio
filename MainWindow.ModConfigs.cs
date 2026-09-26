@@ -55,12 +55,6 @@ public partial class MainWindow
     {
         ["Generic"] = "通用", ["GenericHotkeys"] = "通用快捷键", ["Fixes"] = "修复项", ["Lists"] = "列表", ["TweakToggles"] = "功能开关", ["TweakHotkeys"] = "功能快捷键", ["DisableToggles"] = "禁用项", ["DisableHotkeys"] = "禁用快捷键", ["Internal"] = "内部设置", ["Features"] = "功能", ["ModSettings"] = "Mod 设置", ["GuiSettings"] = "界面设置", ["LockedSlotsSettings"] = "锁定槽位", ["AutoRefillSettings"] = "自动补货", ["EditProfiles"] = "配置档案", ["Visuals"] = "视觉", ["Hotkeys"] = "快捷键"
     };
-    private static readonly Dictionary<string, string> GenericConfigNames = new(StringComparer.OrdinalIgnoreCase)
-    {
-        ["tooltipColors"] = "提示框颜色", ["showInGameNames"] = "显示游戏内名称", ["hideDefaultBlockLoot"] = "隐藏默认方块掉落物",
-        ["showUnboundedGlobalLootModifiers"] = "显示未绑定的全局战利品修改器", ["logMoreStatistics"] = "记录更多统计信息", ["configVersion"] = "配置版本",
-        ["maxGuiScale"] = "最大界面缩放", ["text"] = "文本", ["value"] = "数值", ["error"] = "错误", ["branch"] = "分支"
-    };
     private static readonly Dictionary<string, string> GenericConfigTerms = new(StringComparer.OrdinalIgnoreCase)
     {
         ["general"]="通用", ["client"]="客户端", ["server"]="服务端", ["common"]="公共", ["advanced"]="高级", ["internal"]="内部",
@@ -75,7 +69,40 @@ public partial class MainWindow
         ["mode"]="模式", ["interval"]="间隔", ["delay"]="延迟", ["duration"]="持续时间", ["chance"]="概率", ["radius"]="半径",
         ["volume"]="音量", ["sound"]="声音", ["particle"]="粒子", ["particles"]="粒子", ["inventory"]="物品栏", ["search"]="搜索",
         ["display"]="显示", ["filter"]="过滤器", ["filters"]="过滤器", ["category"]="分类", ["categories"]="分类", ["gui"]="界面",
-        ["max"]="最大", ["min"]="最小"
+        ["max"]="最大", ["maximum"]="最大", ["min"]="最小", ["minimum"]="最小", ["type"]="类型", ["types"]="类型", ["id"]="标识",
+        ["key"]="按键", ["keys"]="按键", ["hotkey"]="快捷键", ["hotkeys"]="快捷键", ["setting"]="设置", ["settings"]="设置",
+        ["list"]="列表", ["include"]="包含", ["exclude"]="排除", ["ignored"]="忽略", ["ignore"]="忽略", ["required"]="必需",
+        ["final"]="最终", ["data"]="数据", ["override"]="覆盖", ["overrides"]="覆盖", ["modify"]="修改", ["amount"]="数量",
+        ["rate"]="速率", ["input"]="输入", ["output"]="输出", ["transfer"]="传输", ["protection"]="保护", ["policy"]="策略",
+        ["progress"]="进度", ["placement"]="放置", ["component"]="组件", ["components"]="组件", ["sub"]="子项", ["main"]="主要",
+        ["player"]="玩家", ["slot"]="槽位", ["slots"]="槽位", ["storage"]="存储", ["capacity"]="容量", ["stack"]="堆叠",
+        ["render"]="渲染", ["fast"]="快速", ["auto"]="自动", ["batch"]="批量", ["order"]="顺序", ["sort"]="排序",
+        ["use"]="使用", ["only"]="仅", ["always"]="始终", ["allow"]="允许", ["match"]="匹配", ["custom"]="自定义",
+        ["icon"]="图标", ["icons"]="图标", ["button"]="按钮", ["menu"]="菜单", ["screen"]="屏幕", ["overlay"]="覆盖层",
+        ["hud"]="信息显示", ["camera"]="镜头", ["model"]="模型", ["recipe"]="配方", ["crafting"]="合成", ["machine"]="机器",
+        ["energy"]="能量", ["fluid"]="流体", ["fuel"]="燃料", ["buffer"]="缓冲区", ["pattern"]="样板", ["provider"]="供应器",
+        ["world"]="世界", ["chunk"]="区块", ["light"]="光照", ["night"]="夜晚", ["fog"]="雾效", ["cave"]="洞穴",
+        ["mob"]="生物", ["villager"]="村民", ["growth"]="生长", ["crop"]="作物", ["harvest"]="收获", ["spawner"]="刷怪笼",
+        ["armor"]="护甲", ["potion"]="药水", ["effect"]="效果", ["status"]="状态", ["info"]="信息", ["warning"]="警告",
+        ["click"]="点击", ["hold"]="按住", ["scroll"]="滚动", ["switch"]="切换", ["swap"]="交换", ["open"]="打开",
+        ["left"]="左", ["right"]="右", ["top"]="顶部", ["bottom"]="底部", ["horizontal"]="水平", ["vertical"]="垂直",
+        ["offset"]="偏移", ["rotation"]="旋转", ["pitch"]="俯仰", ["face"]="朝向", ["reach"]="触及距离", ["threshold"]="阈值",
+        ["tick"]="刻", ["ticks"]="刻", ["frame"]="帧", ["frames"]="帧", ["periodic"]="周期性", ["consumption"]="消耗",
+        ["fill"]="填充", ["refill"]="补货", ["restock"]="补货", ["preview"]="预览", ["profile"]="配置方案", ["preset"]="预设",
+        ["selective"]="选择性", ["accurate"]="精确", ["free"]="自由", ["access"]="访问", ["from"]="来自", ["to"]="至",
+        ["on"]="在", ["per"]="每", ["for"]="用于", ["other"]="其他", ["first"]="首个", ["previous"]="上一个",
+        ["none"]="无", ["all"]="全部", ["has"]="具有", ["properties"]="属性", ["property"]="属性", ["class"]="类别",
+        ["break"]="破坏", ["breaking"]="破坏", ["fly"]="飞行", ["sneak"]="潜行", ["attack"]="攻击", ["hand"]="手部",
+        ["wireless"]="无线", ["culling"]="剔除", ["sync"]="同步", ["tag"]="标签", ["tags"]="标签", ["tier"]="等级",
+        ["grid"]="网格", ["node"]="节点", ["tile"]="方块实体", ["sign"]="告示牌", ["recipes"]="配方"
+        , ["generation"]="生成", ["generate"]="生成", ["force"]="强制", ["side"]="侧", ["message"]="消息", ["messages"]="消息",
+        ["animation"]="动画", ["animal"]="动物", ["overall"]="整体", ["source"]="来源", ["chemical"]="化学品", ["wind"]="风",
+        ["heavy"]="强", ["surface"]="表面", ["sky"]="天空", ["ocean"]="海洋", ["beach"]="海滩", ["rain"]="雨",
+        ["fading"]="淡出", ["fade"]="淡出", ["based"]="基于", ["start"]="开始", ["end"]="结束", ["number"]="数量",
+        ["continuous"]="连续", ["column"]="列", ["columns"]="列", ["row"]="行", ["rows"]="行", ["container"]="容器",
+        ["move"]="移动", ["recorded"]="已记录", ["implicit"]="隐式", ["counts"]="计数", ["super"]="上级", ["hard"]="严格",
+        ["nametag"]="名称标签", ["nametags"]="名称标签", ["dot"]="点", ["failing"]="失败", ["fails"]="失败", ["installed"]="已安装",
+        ["upgrade"]="升级", ["upgrades"]="升级", ["level"]="等级", ["location"]="位置", ["position"]="位置", ["direction"]="方向"
     };
     private static readonly Dictionary<string, string> MinecraftColorNames = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -362,7 +389,7 @@ public partial class MainWindow
                 var nestedPanel = new StackPanel { Margin = new Thickness(10, 3, 0, 5) };
                 RenderJsonObjectRows(draft, category, nested, nestedPanel, search, fullPath);
                 if (nestedPanel.Children.Count == 0) continue;
-                panel.Children.Add(new TextBlock { Text = HumanizeConfigName(option.Key), ToolTip = fullPath, Foreground = new SolidColorBrush(Color.FromRgb(103, 190, 245)), FontWeight = FontWeights.SemiBold, Margin = new Thickness(4, 8, 4, 7) });
+                panel.Children.Add(new TextBlock { Text = TranslateConfigOption(draft, category, option.Key).Label, ToolTip = fullPath, Foreground = new SolidColorBrush(Color.FromRgb(103, 190, 245)), FontWeight = FontWeights.SemiBold, Margin = new Thickness(4, 8, 4, 7) });
                 panel.Children.Add(nestedPanel); continue;
             }
             if (search.Length > 0 && !(fullPath + valueText + TranslateConfigOption(draft, category, option.Key).Label).Contains(search, StringComparison.OrdinalIgnoreCase)) continue;
@@ -712,11 +739,22 @@ public partial class MainWindow
     {
         foreach (var token in tokens)
         {
-            var suffix = "." + token;
-            var matches = translations.Where(pair => pair.Key.EndsWith(suffix, StringComparison.OrdinalIgnoreCase));
-            if (comment) matches = matches.Where(pair => pair.Key.Contains(".comment.", StringComparison.OrdinalIgnoreCase) || pair.Key.Contains(".description.", StringComparison.OrdinalIgnoreCase));
-            else if (category) matches = matches.Where(pair => pair.Key.Contains("category", StringComparison.OrdinalIgnoreCase) || pair.Key.Contains("gui.config", StringComparison.OrdinalIgnoreCase));
-            else matches = matches.Where(pair => pair.Key.Contains(".name.", StringComparison.OrdinalIgnoreCase) || pair.Key.Contains(".prettyName.", StringComparison.OrdinalIgnoreCase));
+            var normalized = NormalizeConfigToken(token);
+            var matches = translations.Where(pair => pair.Key.EndsWith("." + token, StringComparison.OrdinalIgnoreCase) ||
+                NormalizeConfigToken(pair.Key.Split('.').Last()).Equals(normalized, StringComparison.OrdinalIgnoreCase));
+            if (comment)
+            {
+                matches = matches.Where(pair => pair.Key.Contains("comment", StringComparison.OrdinalIgnoreCase) || pair.Key.Contains("description", StringComparison.OrdinalIgnoreCase) || pair.Key.Contains("tooltip", StringComparison.OrdinalIgnoreCase));
+            }
+            else if (category)
+            {
+                matches = matches.Where(pair => pair.Key.Contains("category", StringComparison.OrdinalIgnoreCase) || pair.Key.Contains("config", StringComparison.OrdinalIgnoreCase) || pair.Key.Contains("screen", StringComparison.OrdinalIgnoreCase));
+            }
+            else
+            {
+                var preferred = matches.Where(pair => pair.Key.Contains("name", StringComparison.OrdinalIgnoreCase) || pair.Key.Contains("config", StringComparison.OrdinalIgnoreCase) || pair.Key.Contains("option", StringComparison.OrdinalIgnoreCase) || pair.Key.Contains("setting", StringComparison.OrdinalIgnoreCase));
+                if (preferred.Any()) matches = preferred;
+            }
             var match = matches.FirstOrDefault(); if (!string.IsNullOrWhiteSpace(match.Value)) return CleanMinecraftFormatting(match.Value);
         }
         return null;
@@ -724,11 +762,17 @@ public partial class MainWindow
 
     private static string? TranslateGenericConfigName(string value)
     {
-        if (GenericConfigNames.TryGetValue(value, out var exact)) return exact;
-        var words = Regex.Matches(HumanizeConfigName(value), @"[A-Za-z0-9]+")
+        var words = Regex.Matches(value.Replace('_', ' ').Replace('-', ' ').Replace('.', ' '), @"[A-Z]+(?=[A-Z][a-z]|\b)|[A-Z]?[a-z]+|\d+")
             .Select(match => match.Value).ToList();
-        if (words.Count == 0 || !words.Any(word => GenericConfigTerms.ContainsKey(word))) return null;
-        return string.Join("", words.Select(word => GenericConfigTerms.TryGetValue(word, out var translated) ? translated : word));
+        if (words.Count == 0) return null;
+        var translated = new List<string>(words.Count); var translatedCount = 0;
+        foreach (var word in words)
+        {
+            if (word.All(char.IsDigit)) { translated.Add(word); continue; }
+            if (GenericConfigTerms.TryGetValue(word, out var term)) { translated.Add(term); translatedCount++; }
+            else translated.Add(word.All(char.IsUpper) ? word : word);
+        }
+        return translatedCount == 0 ? null : string.Concat(translated);
     }
 
     private string FormatLocalizedLabel(string? chinese, string? english, string fallback)
