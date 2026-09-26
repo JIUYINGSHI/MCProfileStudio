@@ -57,27 +57,31 @@ public partial class MainWindow : Window
 
     private static Canvas CreateMinecraftPixelIcon(string tag)
     {
-        var canvas = new Canvas { Width = 22, Height = 22, SnapsToDevicePixels = true };
+        var canvas = new Canvas { Width = 28, Height = 28, SnapsToDevicePixels = true, UseLayoutRounding = true };
         void Pixel(double x, double y, double w, double h, string color)
         {
             var block = new System.Windows.Shapes.Rectangle { Width = w, Height = h, Fill = (Brush)new BrushConverter().ConvertFromString(color)!, SnapsToDevicePixels = true };
             Canvas.SetLeft(block, x); Canvas.SetTop(block, y); canvas.Children.Add(block);
         }
-        Pixel(1, 1, 20, 20, "#18232E");
+        Pixel(1, 1, 26, 26, "#1A2732");
         switch (tag)
         {
             case "0": // Creeper face
-                Pixel(3, 3, 16, 16, "#63B34D"); Pixel(5, 6, 4, 4, "#183321"); Pixel(13, 6, 4, 4, "#183321");
-                Pixel(9, 10, 4, 4, "#183321"); Pixel(7, 13, 8, 4, "#183321"); Pixel(5, 15, 3, 3, "#183321"); Pixel(14, 15, 3, 3, "#183321"); break;
+                Pixel(3, 3, 22, 22, "#5FAE48"); Pixel(3, 3, 22, 3, "#7BC963"); Pixel(5, 7, 3, 3, "#78C45C"); Pixel(19, 5, 4, 3, "#4B923B");
+                Pixel(6, 9, 6, 6, "#17351F"); Pixel(17, 9, 5, 6, "#17351F"); Pixel(11, 14, 7, 5, "#17351F"); Pixel(8, 18, 5, 5, "#17351F"); Pixel(17, 18, 5, 5, "#17351F");
+                Pixel(5, 21, 3, 3, "#4A8E39"); Pixel(22, 16, 2, 6, "#76C35B"); break;
             case "1": // Grass block
-                Pixel(3, 5, 16, 14, "#85552F"); Pixel(3, 3, 16, 6, "#61A846"); Pixel(5, 9, 4, 3, "#A27548"); Pixel(13, 11, 4, 4, "#654126"); Pixel(8, 15, 4, 3, "#A27548"); break;
+                Pixel(3, 7, 22, 18, "#82512D"); Pixel(3, 3, 22, 7, "#62AB45"); Pixel(3, 8, 5, 4, "#55953D"); Pixel(10, 7, 4, 5, "#6DB64D"); Pixel(19, 8, 6, 4, "#4D8D38");
+                Pixel(6, 13, 5, 4, "#A56F3E"); Pixel(14, 11, 4, 5, "#654024"); Pixel(20, 15, 4, 6, "#A16A3A"); Pixel(4, 21, 6, 3, "#654024"); Pixel(11, 18, 5, 5, "#B07A46"); Pixel(18, 22, 3, 3, "#5B3922"); break;
             case "2": // Eye of Ender
-                Pixel(3, 9, 3, 4, "#7C4FA4"); Pixel(6, 6, 3, 10, "#9B68BD"); Pixel(9, 4, 4, 14, "#67C8B4"); Pixel(13, 6, 3, 10, "#9B68BD"); Pixel(16, 9, 3, 4, "#7C4FA4"); Pixel(10, 8, 3, 6, "#18232E"); break;
+                Pixel(3, 12, 3, 5, "#64418A"); Pixel(6, 9, 3, 11, "#8756AD"); Pixel(9, 6, 4, 17, "#A070C4"); Pixel(13, 4, 4, 21, "#72D0B9");
+                Pixel(17, 6, 4, 17, "#A070C4"); Pixel(21, 9, 3, 11, "#8756AD"); Pixel(24, 12, 2, 5, "#64418A"); Pixel(11, 10, 3, 9, "#4DAA96"); Pixel(14, 9, 5, 11, "#152C31"); Pixel(16, 11, 3, 7, "#071719"); Pixel(19, 8, 2, 4, "#C294DB"); break;
             case "3": // Redstone repeater
-                Pixel(3, 13, 16, 6, "#B8B5AD"); Pixel(5, 15, 12, 2, "#D9D6CF"); Pixel(6, 7, 3, 7, "#9C2F35"); Pixel(13, 5, 3, 9, "#C9474D"); Pixel(5, 5, 5, 3, "#FF6B67"); Pixel(12, 3, 5, 3, "#FF6B67"); break;
+                Pixel(3, 15, 22, 9, "#A9A69F"); Pixel(3, 15, 22, 3, "#D7D4CC"); Pixel(5, 20, 18, 2, "#85827D"); Pixel(7, 9, 4, 8, "#8C292F"); Pixel(17, 6, 4, 11, "#A9363B");
+                Pixel(6, 6, 6, 4, "#E34D51"); Pixel(7, 5, 4, 2, "#FF817A"); Pixel(16, 3, 6, 4, "#E34D51"); Pixel(17, 2, 4, 2, "#FF817A"); Pixel(11, 18, 6, 2, "#B82F37"); Pixel(13, 17, 2, 5, "#E24A4F"); break;
             default: // Crafting table
-                Pixel(3, 3, 16, 16, "#A36A35"); Pixel(3, 3, 16, 4, "#D1964A"); Pixel(6, 4, 2, 2, "#654126"); Pixel(12, 4, 2, 2, "#654126");
-                Pixel(6, 9, 10, 2, "#654126"); Pixel(6, 14, 10, 2, "#654126"); Pixel(9, 7, 2, 11, "#654126"); break;
+                Pixel(3, 3, 22, 22, "#9C6231"); Pixel(3, 3, 22, 6, "#D09045"); Pixel(5, 5, 4, 2, "#654022"); Pixel(12, 4, 3, 4, "#724626"); Pixel(19, 5, 4, 2, "#654022");
+                Pixel(5, 11, 18, 3, "#5C381F"); Pixel(5, 18, 18, 3, "#5C381F"); Pixel(10, 9, 3, 15, "#5C381F"); Pixel(18, 9, 3, 15, "#5C381F"); Pixel(6, 14, 3, 4, "#BD7E3C"); Pixel(14, 14, 3, 4, "#7D4B27"); Pixel(22, 14, 2, 4, "#C48640"); break;
         }
         return canvas;
     }
