@@ -42,6 +42,7 @@ public partial class MainWindow
     private ListBox? modConfigModList;
     private TabControl? modConfigTabs;
     private ComboBox? modConfigProfileCombo;
+    private ComboBox? modConfigLanguageCombo;
     private TextBox? modConfigSearch;
     private TextBlock? modConfigHint;
     private readonly List<ModConfigDraft> modConfigDrafts = [];
@@ -84,6 +85,9 @@ public partial class MainWindow
         actions.Children.Add(MakeActionButton("新建配置", AddModConfigProfile_Click, new Thickness(0, 10, 0, 0)));
         actions.Children.Add(MakeActionButton("重命名", RenameModConfigProfile_Click, new Thickness(0, 7, 0, 0), false));
         actions.Children.Add(MakeActionButton("保存当前草稿", SaveModConfigProfile_Click, new Thickness(0, 7, 0, 0)));
+        actions.Children.Add(new TextBlock { Text = "选项显示语言", Foreground = new SolidColorBrush(Color.FromRgb(166, 185, 203)), Margin = new Thickness(0, 14, 0, 6) });
+        modConfigLanguageCombo = new ComboBox { ItemsSource = new[] { "中文优先", "中英双语", "English" }, SelectedItem = settings.ModConfigLanguage };
+        modConfigLanguageCombo.SelectionChanged += (_, _) => { if (modConfigLanguageCombo.SelectedItem is string language) { settings.ModConfigLanguage = language; SettingsStore.Save(settings); RenderSelectedModConfig(); } }; actions.Children.Add(modConfigLanguageCombo);
         actions.Children.Add(new Separator { Opacity = .2, Margin = new Thickness(0, 14, 0, 12) });
         actions.Children.Add(MakeActionButton("应用当前 Mod", ApplySelectedModConfig_Click, new Thickness(0), false));
         actions.Children.Add(MakeActionButton("一键覆盖全部已安装 Mod", ApplyAllModConfigs_Click, new Thickness(0, 7, 0, 0)));
@@ -157,18 +161,18 @@ public partial class MainWindow
                 {
                     var valueText = option.Value?.ToJsonString(new JsonSerializerOptions { WriteIndented = false }) ?? "null";
                     if (search.Length > 0 && !(option.Key + valueText).Contains(search, StringComparison.OrdinalIgnoreCase)) continue;
-                    panel.Children.Add(BuildModOptionRow(group, option.Key, option.Value));
+                    panel.Children.Add(BuildModOptionRow(draft, category.Key, group, option.Key, option.Value));
                 }
             }
-            else panel.Children.Add(BuildModOptionRow(draft.Json, category.Key, category.Value));
+            else panel.Children.Add(BuildModOptionRow(draft, category.Key, draft.Json, category.Key, category.Value));
             if (panel.Children.Count == 0) continue;
             var scroll = new ScrollViewer { Content = panel, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled };
-            modConfigTabs.Items.Add(new TabItem { Header = HumanizeConfigName(category.Key), Content = scroll });
+            modConfigTabs.Items.Add(new TabItem { Header = TranslateCategory(draft, category.Key), Content = scroll });
         }
         if (modConfigTabs.Items.Count > 0) modConfigTabs.SelectedIndex = 0;
     }
 
-    private FrameworkElement BuildModOptionRow(JsonObject owner, string key, JsonNode? value)
+    private FrameworkElement BuildModOptionRow(ModConfigDraft draft, string category, JsonObject owner, string key, JsonNode? value)
     {
         var editOwner = owner; var editKey = key; var editableValue = value;
         if (value is JsonObject wrapper && wrapper.Count == 1)
@@ -178,7 +182,8 @@ public partial class MainWindow
         }
         var border = new Border { Margin = new Thickness(0, 0, 0, 8), Padding = new Thickness(12, 9, 12, 9), CornerRadius = new CornerRadius(8), Background = new SolidColorBrush(Color.FromArgb(175, 47, 47, 47)), BorderBrush = new SolidColorBrush(Color.FromRgb(116, 116, 116)), BorderThickness = new Thickness(1) };
         var grid = new Grid(); grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1.05, GridUnitType.Star) }); grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1.4, GridUnitType.Star) });
-        var label = new TextBlock { Text = HumanizeConfigName(key), ToolTip = key, Foreground = Brushes.White, VerticalAlignment = VerticalAlignment.Center, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 12, 0) }; grid.Children.Add(label);
+        var translated = TranslateConfigOption(draft, category, key);
+        var label = new TextBlock { Text = translated.Label, ToolTip = translated.Tooltip, Foreground = Brushes.White, VerticalAlignment = VerticalAlignment.Center, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 12, 0) }; grid.Children.Add(label);
         FrameworkElement editor;
         if (editableValue is JsonValue scalar && scalar.TryGetValue<bool>(out var boolean))
         {
@@ -213,6 +218,110 @@ public partial class MainWindow
             return JsonNode.Parse(text);
         }
         catch { return JsonValue.Create(text); }
+    }
+
+    private string TranslateCategory(ModConfigDraft draft, string category)
+    {
+        var fallback = HumanizeConfigName(category);
+        var info = FindModTranslationInfo(draft.Definition); if (info == null) return fallback;
+        var tokens = new[] { category, ToSnakeCase(category) };
+        var chinese = FindTranslation(info.ChineseTranslations, tokens, true, true);
+        var english = FindTranslation(info.EnglishTranslations, tokens, true, true);
+        return FormatLocalizedLabel(chinese, english, fallback);
+    }
+
+    private (string Label, string Tooltip) TranslateConfigOption(ModConfigDraft draft, string category, string key)
+    {
+        var fallback = HumanizeConfigName(key); var info = FindModTranslationInfo(draft.Definition);
+        if (info == null) return (fallback, key);
+        var candidates = BuildTranslationCandidates(draft.Definition.Id, category, key);
+        var chinese = FindFirst(info.ChineseTranslations, candidates) ?? FindTranslation(info.ChineseTranslations, [key, ToSnakeCase(key)], false, false);
+        var english = FindFirst(info.EnglishTranslations, candidates) ?? FindTranslation(info.EnglishTranslations, [key, ToSnakeCase(key)], false, false);
+        var commentCandidates = candidates.Select(x => x.Replace(".name.", ".comment.").Replace(".prettyName.", ".comment.").Replace("config.name.", "config.description.")).ToArray();
+        var chineseComment = FindFirst(info.ChineseTranslations, commentCandidates) ?? FindTranslation(info.ChineseTranslations, [key, ToSnakeCase(key)], false, true);
+        var englishComment = FindFirst(info.EnglishTranslations, commentCandidates) ?? FindTranslation(info.EnglishTranslations, [key, ToSnakeCase(key)], false, true);
+        var label = FormatLocalizedLabel(chinese, english, fallback);
+        var description = FormatLocalizedDescription(chineseComment, englishComment);
+        return (label, string.IsNullOrWhiteSpace(description) ? key : $"{description}\n\n配置键：{key}");
+    }
+
+    private ModInfo? FindModTranslationInfo(ModConfigDefinition definition)
+    {
+        foreach (var alias in definition.Aliases)
+            if (mods.TryGetValue(alias, out var exact)) return exact;
+        return mods.Values.FirstOrDefault(info => definition.Aliases.Any(alias => info.Id.Contains(alias, StringComparison.OrdinalIgnoreCase)) ||
+            info.ChineseTranslations.Keys.Concat(info.EnglishTranslations.Keys).Any(k => k.StartsWith(definition.Id + ".", StringComparison.OrdinalIgnoreCase) || (definition.Id == "inventoryprofilesnext" && k.StartsWith("inventoryprofiles.", StringComparison.OrdinalIgnoreCase))));
+    }
+
+    private static string[] BuildTranslationCandidates(string modId, string category, string key)
+    {
+        var snake = ToSnakeCase(key); var lowerCategory = ToSnakeCase(category);
+        if (modId == "inventoryprofilesnext") return [$"inventoryprofiles.config.name.{key}", $"inventoryprofiles.config.name.{snake}"];
+        var prefix = modId switch { "tweakeroo" => "tweakeroo", "litematica" => "litematica", "minihud" => "minihud", "itemscroller" => "itemscroller", _ => modId };
+        var section = category switch
+        {
+            "TweakToggles" or "TweakHotkeys" => "feature_toggle",
+            "DisableToggles" or "DisableHotkeys" => "disable_toggle",
+            "GenericHotkeys" or "Hotkeys" => "hotkey",
+            "Fixes" => "fix",
+            "Lists" => "list",
+            _ => lowerCategory.Replace("_hotkeys", "").Replace("_settings", "")
+        };
+        return [$"{prefix}.config.{section}.prettyName.{key}", $"{prefix}.config.{section}.name.{key}", $"{prefix}.config.{section}.name.{snake}", $"{prefix}.config.name.{key}", $"{prefix}.config.name.{snake}"];
+    }
+
+    private static string? FindFirst(Dictionary<string, string> translations, IEnumerable<string> candidates)
+    {
+        foreach (var candidate in candidates) if (translations.TryGetValue(candidate, out var value) && !string.IsNullOrWhiteSpace(value)) return CleanMinecraftFormatting(value);
+        return null;
+    }
+
+    private static string? FindTranslation(Dictionary<string, string> translations, IEnumerable<string> tokens, bool category, bool comment)
+    {
+        foreach (var token in tokens)
+        {
+            var suffix = "." + token;
+            var matches = translations.Where(pair => pair.Key.EndsWith(suffix, StringComparison.OrdinalIgnoreCase));
+            if (comment) matches = matches.Where(pair => pair.Key.Contains(".comment.", StringComparison.OrdinalIgnoreCase) || pair.Key.Contains(".description.", StringComparison.OrdinalIgnoreCase));
+            else if (category) matches = matches.Where(pair => pair.Key.Contains("category", StringComparison.OrdinalIgnoreCase) || pair.Key.Contains("gui.config", StringComparison.OrdinalIgnoreCase));
+            else matches = matches.Where(pair => pair.Key.Contains(".name.", StringComparison.OrdinalIgnoreCase) || pair.Key.Contains(".prettyName.", StringComparison.OrdinalIgnoreCase));
+            var match = matches.FirstOrDefault(); if (!string.IsNullOrWhiteSpace(match.Value)) return CleanMinecraftFormatting(match.Value);
+        }
+        return null;
+    }
+
+    private string FormatLocalizedLabel(string? chinese, string? english, string fallback)
+    {
+        return settings.ModConfigLanguage switch
+        {
+            "English" => english ?? chinese ?? fallback,
+            "中英双语" when !string.IsNullOrWhiteSpace(chinese) && !string.IsNullOrWhiteSpace(english) && !chinese.Equals(english, StringComparison.OrdinalIgnoreCase) => $"{chinese}  /  {english}",
+            "中英双语" => chinese ?? english ?? fallback,
+            _ => chinese ?? english ?? fallback
+        };
+    }
+
+    private string FormatLocalizedDescription(string? chinese, string? english)
+    {
+        return settings.ModConfigLanguage switch
+        {
+            "English" => english ?? chinese ?? "",
+            "中英双语" when !string.IsNullOrWhiteSpace(chinese) && !string.IsNullOrWhiteSpace(english) && !chinese.Equals(english, StringComparison.OrdinalIgnoreCase) => $"{chinese}\n\n{english}",
+            "中英双语" => chinese ?? english ?? "",
+            _ => chinese ?? english ?? ""
+        };
+    }
+
+    private static string CleanMinecraftFormatting(string value)
+    {
+        return System.Text.RegularExpressions.Regex.Replace(value, "§[0-9a-fk-or]", "", System.Text.RegularExpressions.RegexOptions.IgnoreCase).Trim();
+    }
+
+    private static string ToSnakeCase(string value)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return value; var result = new System.Text.StringBuilder();
+        for (var i = 0; i < value.Length; i++) { if (i > 0 && char.IsUpper(value[i]) && (char.IsLower(value[i - 1]) || char.IsDigit(value[i - 1]))) result.Append('_'); result.Append(char.ToLowerInvariant(value[i])); }
+        return result.ToString().Replace('-', '_');
     }
 
     private static string HumanizeConfigName(string value)

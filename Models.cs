@@ -58,6 +58,7 @@ public class AppSettings
     public string ActivePackProfile { get; set; } = "默认配置";
     public Dictionary<string, PackProfile> PackProfiles { get; set; } = new(StringComparer.OrdinalIgnoreCase);
     public string ActiveModConfigProfile { get; set; } = "默认 Mod 配置";
+    public string ModConfigLanguage { get; set; } = "中文优先";
 }
 
 public class PackProfile
