@@ -69,7 +69,7 @@ public partial class MainWindow
     {
         if (FindLogicalParent<Grid>(KeysPage) is not { } host || FindLogicalParent<StackPanel>(FindNavButton("3")) is not { } navigation) return;
 
-        var nav = new RadioButton { Content = "▤  Mod 配置", Tag = "4", Style = (Style)FindResource("Nav") };
+        var nav = new RadioButton { Content = CreateMinecraftNavContent("4", "Mod 配置"), Tag = "4", Style = (Style)FindResource("Nav") };
         nav.Checked += Navigate; navigation.Children.Add(nav);
 
         modConfigsPage = new Grid { Visibility = Visibility.Collapsed };

@@ -36,9 +36,50 @@ public partial class MainWindow : Window
 
     public MainWindow()
     {
-        EnsurePackProfiles(); EnsureKeyProfiles(); draftSelectedShader = settings.SelectedShader; InitializeComponent(); PackList.ItemsSource = packs; ShaderList.ItemsSource = shaders; BuildPackManager(); BuildDraftControls(); BuildModConfigPage();
+        EnsurePackProfiles(); EnsureKeyProfiles(); draftSelectedShader = settings.SelectedShader; InitializeComponent(); ApplyMinecraftNavIcons(); PackList.ItemsSource = packs; ShaderList.ItemsSource = shaders; BuildPackManager(); BuildDraftControls(); BuildModConfigPage();
         LayoutCombo.ItemsSource = KeyboardLayouts.Keys; LayoutCombo.SelectedItem = KeyboardLayouts.ContainsKey(settings.KeyboardLayout) ? settings.KeyboardLayout : "108 键全尺寸";
         SourceInitialized += (_, _) => EnableMica(); Loaded += (_, _) => { ReloadLibraries(); RefreshSummary(); FitKeyboard(); }; SizeChanged += (_, _) => FitKeyboard();
+    }
+
+    private void ApplyMinecraftNavIcons()
+    {
+        var labels = new Dictionary<string, string> { ["0"] = "概览", ["1"] = "资源包", ["2"] = "光影包", ["3"] = "键位配置" };
+        foreach (var item in labels) if (FindNavButton(item.Key) is { } button) button.Content = CreateMinecraftNavContent(item.Key, item.Value);
+    }
+
+    private static FrameworkElement CreateMinecraftNavContent(string tag, string label)
+    {
+        var panel = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
+        panel.Children.Add(CreateMinecraftPixelIcon(tag));
+        panel.Children.Add(new TextBlock { Text = label, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(12, 0, 0, 0), FontWeight = FontWeights.SemiBold });
+        return panel;
+    }
+
+    private static Canvas CreateMinecraftPixelIcon(string tag)
+    {
+        var canvas = new Canvas { Width = 22, Height = 22, SnapsToDevicePixels = true };
+        void Pixel(double x, double y, double w, double h, string color)
+        {
+            var block = new System.Windows.Shapes.Rectangle { Width = w, Height = h, Fill = (Brush)new BrushConverter().ConvertFromString(color)!, SnapsToDevicePixels = true };
+            Canvas.SetLeft(block, x); Canvas.SetTop(block, y); canvas.Children.Add(block);
+        }
+        Pixel(1, 1, 20, 20, "#18232E");
+        switch (tag)
+        {
+            case "0": // Creeper face
+                Pixel(3, 3, 16, 16, "#63B34D"); Pixel(5, 6, 4, 4, "#183321"); Pixel(13, 6, 4, 4, "#183321");
+                Pixel(9, 10, 4, 4, "#183321"); Pixel(7, 13, 8, 4, "#183321"); Pixel(5, 15, 3, 3, "#183321"); Pixel(14, 15, 3, 3, "#183321"); break;
+            case "1": // Grass block
+                Pixel(3, 5, 16, 14, "#85552F"); Pixel(3, 3, 16, 6, "#61A846"); Pixel(5, 9, 4, 3, "#A27548"); Pixel(13, 11, 4, 4, "#654126"); Pixel(8, 15, 4, 3, "#A27548"); break;
+            case "2": // Eye of Ender
+                Pixel(3, 9, 3, 4, "#7C4FA4"); Pixel(6, 6, 3, 10, "#9B68BD"); Pixel(9, 4, 4, 14, "#67C8B4"); Pixel(13, 6, 3, 10, "#9B68BD"); Pixel(16, 9, 3, 4, "#7C4FA4"); Pixel(10, 8, 3, 6, "#18232E"); break;
+            case "3": // Redstone repeater
+                Pixel(3, 13, 16, 6, "#B8B5AD"); Pixel(5, 15, 12, 2, "#D9D6CF"); Pixel(6, 7, 3, 7, "#9C2F35"); Pixel(13, 5, 3, 9, "#C9474D"); Pixel(5, 5, 5, 3, "#FF6B67"); Pixel(12, 3, 5, 3, "#FF6B67"); break;
+            default: // Crafting table
+                Pixel(3, 3, 16, 16, "#A36A35"); Pixel(3, 3, 16, 4, "#D1964A"); Pixel(6, 4, 2, 2, "#654126"); Pixel(12, 4, 2, 2, "#654126");
+                Pixel(6, 9, 10, 2, "#654126"); Pixel(6, 14, 10, 2, "#654126"); Pixel(9, 7, 2, 11, "#654126"); break;
+        }
+        return canvas;
     }
 
     private void BuildDraftControls()
