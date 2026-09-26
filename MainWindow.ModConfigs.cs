@@ -160,8 +160,7 @@ public partial class MainWindow
                 if (!installed) continue;
                 var primary = Directory.Exists(path) ? Path.Combine(path, definition.PrimaryJson) : path;
                 if (!File.Exists(primary)) continue;
-                JsonObject? json = null; try { json = JsonNode.Parse(File.ReadAllText(primary)) as JsonObject; } catch { }
-                if (json == null) continue;
+                if (!TryReadEditableJsonObject(primary, out var json)) continue;
                 var draft = new ModConfigDraft { Definition = definition, SourcePath = path, Json = json, IsDetected = true };
                 draft.ConfigFiles.AddRange(Directory.Exists(path) ? Directory.EnumerateFiles(path, "*", SearchOption.AllDirectories).Where(IsSupportedConfigFile) : [path]);
                 foreach (var hotkey in DiscoverHotkeyNames(definition)) draft.DiscoveredHotkeys.Add(hotkey);
@@ -184,7 +183,7 @@ public partial class MainWindow
         {
             var matches = files.Select(file => (File: file, Score: ScoreConfigPath(configRoot, file, mod))).Where(item => item.Score > 0).OrderByDescending(item => item.Score).ThenBy(item => item.File.Length).ToList();
             if (matches.Count == 0) continue;
-            var editable = matches.Where(item => Path.GetExtension(item.File).Equals(".json", StringComparison.OrdinalIgnoreCase) && TryReadJsonObject(item.File, out _)).ToList();
+            var editable = matches.Where(item => Path.GetExtension(item.File).Equals(".json", StringComparison.OrdinalIgnoreCase) && TryReadEditableJsonObject(item.File, out _)).ToList();
             if (editable.Count == 0) continue;
             var primary = editable[0].File; var bestScore = editable[0].Score;
             var selected = matches.Where(item => item.Score >= Math.Max(55, bestScore - 15)).Select(item => item.File).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
@@ -222,6 +221,21 @@ public partial class MainWindow
     private static bool TryReadJsonObject(string path, out JsonObject? json)
     {
         try { json = JsonNode.Parse(File.ReadAllText(path)) as JsonObject; return json != null; } catch { json = null; return false; }
+    }
+
+    private static bool TryReadEditableJsonObject(string path, out JsonObject? json)
+    {
+        if (!TryReadJsonObject(path, out json) || json == null) return false;
+        return ContainsEditableConfigValue(json);
+    }
+
+    private static bool ContainsEditableConfigValue(JsonNode? node)
+    {
+        if (node is JsonValue) return true;
+        if (node is JsonArray) return false;
+        if (node is not JsonObject obj) return false;
+        if (IsEditableConfigObject(obj)) return true;
+        return obj.Any(item => ContainsEditableConfigValue(item.Value));
     }
 
     private void ModConfigModList_SelectionChanged(object sender, SelectionChangedEventArgs e) => RenderSelectedModConfig();
@@ -271,7 +285,7 @@ public partial class MainWindow
             {
                 RenderJsonObjectRows(draft, category.Key, group, panel, search, "");
             }
-            else panel.Children.Add(BuildModOptionRow(draft, category.Key, draft.Json, category.Key, category.Value));
+            else if (category.Value is JsonValue) panel.Children.Add(BuildModOptionRow(draft, category.Key, draft.Json, category.Key, category.Value));
             if (panel.Children.Count > 0) categoryPanels[category.Key] = panel;
         }
         var existingHotkeys = CollectExistingHotkeyNames(draft.Json);
@@ -308,6 +322,7 @@ public partial class MainWindow
         foreach (var option in group)
         {
             var fullPath = string.IsNullOrWhiteSpace(path) ? option.Key : $"{path}.{option.Key}";
+            if (option.Value is JsonArray || option.Value == null) continue;
             var valueText = option.Value?.ToJsonString(new JsonSerializerOptions { WriteIndented = false }) ?? "null";
             if (option.Value is JsonObject nested && !IsEditableConfigObject(nested))
             {
