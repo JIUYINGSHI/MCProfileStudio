@@ -14,6 +14,7 @@
 - 键位既可仅应用于当前实例，也可保存为只对对应 Mod 生效的专属配置。
 - 可直接导入任意 `options.txt`，并按需选择资源包排序、光影选择或键位；导入内容先进入草稿。
 - 资源包和键位支持多套命名配置，只有点击“保存配置”才会持久化修改。
+- 资源包、键位和 Mod 配置均可删除当前方案；删除前会确认并立即持久化，且每一类至少保留一套配置。
 - 独立的“Mod 配置”页面可管理 Tweakeroo、Litematica、Inventory Profiles Next、TweakerMore、Item Scroller、MiniHUD 与 MaLiLib 自有配置；按游戏内分类编辑开关、快捷键和列表，并将整套配置保存后按已安装 Mod 一键覆盖到新实例。
 - Mod 配置标签与说明直接读取已安装 Mod JAR 内的 `zh_cn.json` / `en_us.json`，支持中文优先、中英双语和英文三种显示方式；新版本新增配置无需等待软件更新翻译表。
 - 配置翻译采用兼容式管线：对任意 camelCase、snake_case 和点分路径自动拆词，模糊匹配 Mod 自带 i18n 后再以全局 Minecraft/配置术语组合翻译，不为单个 Mod 硬编码整页译名；Minecraft 颜色等常见枚举会显示为中文下拉选项，同时保持写回原始内部值。

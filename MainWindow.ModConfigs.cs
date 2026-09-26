@@ -165,6 +165,7 @@ public partial class MainWindow
         modConfigProfileCombo = new ComboBox(); modConfigProfileCombo.SelectionChanged += ModConfigProfile_SelectionChanged; actions.Children.Add(modConfigProfileCombo);
         actions.Children.Add(MakeActionButton("新建配置", AddModConfigProfile_Click, new Thickness(0, 10, 0, 0)));
         actions.Children.Add(MakeActionButton("重命名", RenameModConfigProfile_Click, new Thickness(0, 7, 0, 0), false));
+        var deleteProfile = MakeActionButton("删除当前配置", DeleteModConfigProfile_Click, new Thickness(0, 7, 0, 0), false); deleteProfile.Background = new SolidColorBrush(Color.FromRgb(112, 48, 56)); actions.Children.Add(deleteProfile);
         actions.Children.Add(MakeActionButton("保存全部 Mod 草稿", SaveModConfigProfile_Click, new Thickness(0, 7, 0, 0)));
         actions.Children.Add(new TextBlock { Text = "选项显示语言", Foreground = new SolidColorBrush(Color.FromRgb(166, 185, 203)), Margin = new Thickness(0, 14, 0, 6) });
         modConfigLanguageCombo = new ComboBox { ItemsSource = new[] { "中文优先", "中英双语", "English" }, SelectedItem = settings.ModConfigLanguage };
@@ -888,6 +889,25 @@ public partial class MainWindow
     {
         var old = settings.ActiveModConfigProfile; var name = PromptForProfileName("重命名 Mod 配置", old); if (string.IsNullOrWhiteSpace(name) || name == old) return;
         var oldPath = Path.Combine(ModConfigProfilesRoot, SafeProfileName(old)); var newPath = Path.Combine(ModConfigProfilesRoot, SafeProfileName(name)); if (Directory.Exists(oldPath) && !Directory.Exists(newPath)) Directory.Move(oldPath, newPath); settings.ActiveModConfigProfile = name; SettingsStore.Save(settings); RefreshModConfigProfiles();
+    }
+
+    private void DeleteModConfigProfile_Click(object sender, RoutedEventArgs e)
+    {
+        var names = Directory.Exists(ModConfigProfilesRoot)
+            ? Directory.EnumerateDirectories(ModConfigProfilesRoot).Select(Path.GetFileName).Where(name => !string.IsNullOrWhiteSpace(name)).Cast<string>().Append(settings.ActiveModConfigProfile).Distinct(StringComparer.OrdinalIgnoreCase).Order().ToList()
+            : [settings.ActiveModConfigProfile];
+        if (names.Count <= 1) { MessageBox.Show(this, "至少需要保留一套 Mod 配置。", "无法删除", MessageBoxButton.OK, MessageBoxImage.Information); return; }
+        var name = settings.ActiveModConfigProfile; if (MessageBox.Show(this, $"确定删除 Mod 配置“{name}”及其已保存的全部草稿吗？", "删除 Mod 配置", MessageBoxButton.YesNo, MessageBoxImage.Warning) != MessageBoxResult.Yes) return;
+        try
+        {
+            var path = Path.Combine(ModConfigProfilesRoot, SafeProfileName(name));
+            if (Directory.Exists(path)) { MakeTreeWritable(path); Directory.Delete(path, true); }
+            settings.ActiveModConfigProfile = names.First(candidate => !candidate.Equals(name, StringComparison.OrdinalIgnoreCase)); SettingsStore.Save(settings); RefreshModConfigProfiles(); RefreshModConfigPage(); StatusText.Text = $"已删除 Mod 配置：{name}";
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(this, $"删除 Mod 配置失败：\n{ex.Message}", "删除失败", MessageBoxButton.OK, MessageBoxImage.Error);
+        }
     }
 
     private void SaveModConfigProfile_Click(object sender, RoutedEventArgs e)
