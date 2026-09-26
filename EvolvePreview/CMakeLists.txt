@@ -11,17 +11,17 @@ qt_standard_project_setup(REQUIRES 6.8)
 qt_add_executable(MCProfileStudioEvolve WIN32 main.cpp)
 
 set(EVOLVE_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/../third_party/EvolveUI")
-set(EVOLVE_COMPONENTS
-    "${EVOLVE_ROOT}/components/ETheme.qml"
-    "${EVOLVE_ROOT}/components/EButton.qml"
-    "${EVOLVE_ROOT}/components/EBlurCard.qml"
-    "${EVOLVE_ROOT}/components/EInput.qml"
-    "${EVOLVE_ROOT}/components/EDropdown.qml"
-)
-
-foreach(component IN LISTS EVOLVE_COMPONENTS)
-    get_filename_component(component_name "${component}" NAME)
-    set_source_files_properties("${component}" PROPERTIES QT_RESOURCE_ALIAS "components/${component_name}")
+set(EVOLVE_COMPONENT_NAMES ETheme.qml EButton.qml EBlurCard.qml EInput.qml EDropdown.qml)
+set(EVOLVE_COMPONENTS)
+file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/generated/components")
+foreach(component_name IN LISTS EVOLVE_COMPONENT_NAMES)
+    set(component "${CMAKE_CURRENT_BINARY_DIR}/generated/components/${component_name}")
+    configure_file("${EVOLVE_ROOT}/components/${component_name}" "${component}" COPYONLY)
+    set_source_files_properties("${component}" PROPERTIES
+        GENERATED TRUE
+        QT_RESOURCE_ALIAS "components/${component_name}"
+    )
+    list(APPEND EVOLVE_COMPONENTS "${component}")
 endforeach()
 
 set_source_files_properties(qml/Main.qml PROPERTIES QT_RESOURCE_ALIAS Main.qml)
