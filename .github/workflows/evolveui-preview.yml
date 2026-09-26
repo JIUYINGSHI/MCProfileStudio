@@ -1,0 +1,39 @@
+name: EvolveUI preview
+
+on:
+  push:
+    branches: [evolveui-preview]
+  workflow_dispatch:
+
+jobs:
+  build-windows:
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install Qt
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: '6.8.3'
+          arch: win64_msvc2022_64
+          cache: true
+
+      - name: Configure
+        run: cmake -S EvolvePreview -B EvolvePreview/build -G "Visual Studio 17 2022" -A x64
+
+      - name: Build
+        run: cmake --build EvolvePreview/build --config Release
+
+      - name: Deploy Qt runtime
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force EvolvePreview/package | Out-Null
+          Copy-Item EvolvePreview/build/Release/MCProfileStudio-EvolveUI.exe EvolvePreview/package/
+          windeployqt --release --qmldir EvolvePreview/qml EvolvePreview/package/MCProfileStudio-EvolveUI.exe
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: MCProfileStudio-EvolveUI-win-x64
+          path: EvolvePreview/package

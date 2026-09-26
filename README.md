@@ -1,6 +1,22 @@
 # MC Profile Studio
 
-面向 Minecraft Java 多 Mod 整合包的资源包、光影包和键位配置工具，采用 WPF 与 WinUI 风格界面。
+> 当前分支：`evolveui-preview`。这是基于 [EvolveUI](https://github.com/sudoevolve/EvolveUI) 的 Qt 6 / QML 界面候选版，用于评估是否替换主分支现有的 WPF 界面。当前稳定版仍位于 `main`，本分支不会覆盖 v5.4。
+
+面向 Minecraft Java 多 Mod 整合包的资源包、光影包和键位配置工具。主分支稳定版采用 WPF 界面，本分支正在评估 EvolveUI。
+
+## EvolveUI 候选界面
+
+本分支新增 `EvolvePreview/`，界面层改用 Qt 6 QML，并直接引用官方 EvolveUI 子模块中的 `ETheme`、`EButton`、`EBlurCard`、`EInput` 与 `EDropdown` 组件。候选界面覆盖概览、资源包双栏、光影预览和可视化键位四个页面；现阶段用于视觉与交互方向评审，原有功能完整版本仍保留在 WPF 工程中。
+
+构建候选界面需要 Qt 6.8+（Quick、QuickControls2）与 CMake：
+
+```powershell
+git submodule update --init --recursive
+cmake -S EvolvePreview -B EvolvePreview/build -DCMAKE_PREFIX_PATH="C:/Qt/6.8.3/msvc2022_64"
+cmake --build EvolvePreview/build --config Release
+```
+
+EvolveUI 采用 MIT 许可证；上游源码作为 Git 子模块保留原始版权与许可证。
 
 ## 主要功能
 
