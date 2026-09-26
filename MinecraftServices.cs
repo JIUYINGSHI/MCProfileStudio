@@ -33,7 +33,7 @@ public static class MinecraftConfig
                 if (toml != null) { using var sr = new StreamReader(toml.Open()); var raw = sr.ReadToEnd(); id = Regex.Match(raw, "modId\\s*=\\s*\"([^\"]+)\"").Groups[1].Value; name = Regex.Match(raw, "displayName\\s*=\\s*\"([^\"]+)\"").Groups[1].Value; dependencies.AddRange(Regex.Matches(raw, "modId\\s*=\\s*\"([^\"]+)\"").Skip(1).Select(m => m.Groups[1].Value)); }
                 if (string.IsNullOrWhiteSpace(id)) id = Regex.Replace(Path.GetFileNameWithoutExtension(jar), @"[-_]?\d.*$", "").ToLowerInvariant();
                 if (string.IsNullOrWhiteSpace(name)) name = id.Replace('_', ' ');
-                var info = new ModInfo { Id = id, EnglishName = name };
+                var info = new ModInfo { Id = id, EnglishName = name, JarPath = jar };
                 LoadLang(zip, info, "en_us", info.EnglishTranslations); LoadLang(zip, info, "zh_cn", info.ChineseTranslations);
                 info.ChineseName = FindModName(info.ChineseTranslations, id);
                 result[id] = info; foreach (var dep in dependencies) if (!IsLoader(dep)) dependencyIds.Add(dep);

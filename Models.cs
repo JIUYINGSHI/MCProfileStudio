@@ -76,6 +76,7 @@ public class KeyProfile
 public class ModInfo
 {
     public string Id { get; set; } = "";
+    public string JarPath { get; set; } = "";
     public string EnglishName { get; set; } = "";
     public string ChineseName { get; set; } = "";
     public bool IsLibrary { get; set; }

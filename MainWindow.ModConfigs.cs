@@ -1,4 +1,6 @@
 using System.IO;
+using System.IO.Compression;
+using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Windows;
@@ -20,6 +22,8 @@ public partial class MainWindow
         public required ModConfigDefinition Definition { get; init; }
         public required string SourcePath { get; init; }
         public JsonObject? Json { get; set; }
+        public List<string> DiscoveredHotkeys { get; } = [];
+        public JsonObject HotkeyOverrides { get; } = new();
         public bool IsDetected { get; set; }
         public override string ToString() => Definition.DisplayName;
     }
@@ -139,7 +143,9 @@ public partial class MainWindow
                 var primary = Directory.Exists(path) ? Path.Combine(path, definition.PrimaryJson) : path;
                 if (!File.Exists(primary)) continue;
                 JsonObject? json = null; try { json = JsonNode.Parse(File.ReadAllText(primary)) as JsonObject; } catch { }
-                modConfigDrafts.Add(new ModConfigDraft { Definition = definition, SourcePath = path, Json = json, IsDetected = true });
+                var draft = new ModConfigDraft { Definition = definition, SourcePath = path, Json = json, IsDetected = true };
+                foreach (var hotkey in DiscoverHotkeyNames(definition)) draft.DiscoveredHotkeys.Add(hotkey);
+                modConfigDrafts.Add(draft);
             }
         }
         modConfigModList.ItemsSource = null; modConfigModList.ItemsSource = modConfigDrafts; if (modConfigDrafts.Count > 0) modConfigModList.SelectedIndex = 0;
@@ -160,22 +166,66 @@ public partial class MainWindow
             var panel = new StackPanel { Margin = new Thickness(4) };
             if (category.Value is JsonObject group)
             {
-                foreach (var option in group)
-                {
-                    var valueText = option.Value?.ToJsonString(new JsonSerializerOptions { WriteIndented = false }) ?? "null";
-                    if (search.Length > 0 && !(option.Key + valueText).Contains(search, StringComparison.OrdinalIgnoreCase)) continue;
-                    JsonObject? pairedHotkey = null;
-                    if (category.Key == "TweakToggles" && draft.Json["TweakHotkeys"] is JsonObject tweakHotkeys) pairedHotkey = tweakHotkeys[option.Key] as JsonObject;
-                    if (category.Key == "DisableToggles" && draft.Json["DisableHotkeys"] is JsonObject disableHotkeys) pairedHotkey = disableHotkeys[option.Key] as JsonObject;
-                    panel.Children.Add(BuildModOptionRow(draft, category.Key, group, option.Key, option.Value, pairedHotkey));
-                }
+                RenderJsonObjectRows(draft, category.Key, group, panel, search, "");
             }
             else panel.Children.Add(BuildModOptionRow(draft, category.Key, draft.Json, category.Key, category.Value));
             if (panel.Children.Count == 0) continue;
             var scroll = new ScrollViewer { Content = panel, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled };
             modConfigTabs.Items.Add(new TabItem { Header = TranslateCategory(draft, category.Key), Content = scroll });
         }
+        var existingHotkeys = CollectExistingHotkeyNames(draft.Json);
+        var discovered = draft.DiscoveredHotkeys.Where(key => !existingHotkeys.Contains(key)).Where(key => search.Length == 0 || TranslateConfigOption(draft, "Hotkeys", key).Label.Contains(search, StringComparison.OrdinalIgnoreCase) || key.Contains(search, StringComparison.OrdinalIgnoreCase)).ToList();
+        if (discovered.Count > 0)
+        {
+            var panel = new StackPanel { Margin = new Thickness(4) };
+            panel.Children.Add(new TextBlock { Text = "这些快捷键由 Mod 的 i18n 与字节码定义自动发现；未修改项保持 Mod 默认值。", Foreground = new SolidColorBrush(Color.FromRgb(166, 185, 203)), TextWrapping = TextWrapping.Wrap, Margin = new Thickness(4, 0, 4, 10) });
+            foreach (var key in discovered) panel.Children.Add(BuildDiscoveredHotkeyRow(draft, key));
+            modConfigTabs.Items.Add(new TabItem { Header = $"自动发现的快捷键（{discovered.Count}）", Content = new ScrollViewer { Content = panel, VerticalScrollBarVisibility = ScrollBarVisibility.Auto } });
+        }
         if (modConfigTabs.Items.Count > 0) modConfigTabs.SelectedIndex = 0;
+    }
+
+    private void RenderJsonObjectRows(ModConfigDraft draft, string category, JsonObject group, Panel panel, string search, string path)
+    {
+        foreach (var option in group)
+        {
+            var fullPath = string.IsNullOrWhiteSpace(path) ? option.Key : $"{path}.{option.Key}";
+            var valueText = option.Value?.ToJsonString(new JsonSerializerOptions { WriteIndented = false }) ?? "null";
+            if (option.Value is JsonObject nested && !IsEditableConfigObject(nested))
+            {
+                var nestedPanel = new StackPanel { Margin = new Thickness(10, 3, 0, 5) };
+                RenderJsonObjectRows(draft, category, nested, nestedPanel, search, fullPath);
+                if (nestedPanel.Children.Count == 0) continue;
+                panel.Children.Add(new TextBlock { Text = HumanizeConfigName(option.Key), ToolTip = fullPath, Foreground = new SolidColorBrush(Color.FromRgb(103, 190, 245)), FontWeight = FontWeights.SemiBold, Margin = new Thickness(4, 8, 4, 7) });
+                panel.Children.Add(nestedPanel); continue;
+            }
+            if (search.Length > 0 && !(fullPath + valueText + TranslateConfigOption(draft, category, option.Key).Label).Contains(search, StringComparison.OrdinalIgnoreCase)) continue;
+            JsonObject? pairedHotkey = null;
+            if (category == "TweakToggles" && draft.Json?["TweakHotkeys"] is JsonObject tweakHotkeys) pairedHotkey = tweakHotkeys[option.Key] as JsonObject;
+            if (category == "DisableToggles" && draft.Json?["DisableHotkeys"] is JsonObject disableHotkeys) pairedHotkey = disableHotkeys[option.Key] as JsonObject;
+            panel.Children.Add(BuildModOptionRow(draft, category, group, option.Key, option.Value, pairedHotkey));
+        }
+    }
+
+    private static bool IsEditableConfigObject(JsonObject value)
+    {
+        if (value.ContainsKey("enabled") || value.ContainsKey("hotkey") || value.ContainsKey("keys") || value.ContainsKey("keybind") || value.ContainsKey("shortcut")) return true;
+        return value.Count == 1 && value.First().Key == "value";
+    }
+
+    private static HashSet<string> CollectExistingHotkeyNames(JsonObject root)
+    {
+        var result = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        void Walk(JsonObject current)
+        {
+            foreach (var item in current)
+            {
+                if (item.Value is not JsonObject child) continue;
+                if (child.ContainsKey("keys") || child.ContainsKey("hotkey") || child.ContainsKey("keybind") || child.ContainsKey("shortcut")) result.Add(item.Key);
+                Walk(child);
+            }
+        }
+        Walk(root); return result;
     }
 
     private FrameworkElement BuildModOptionRow(ModConfigDraft draft, string category, JsonObject owner, string key, JsonNode? value, JsonObject? pairedHotkey = null)
@@ -191,13 +241,19 @@ public partial class MainWindow
         var translated = TranslateConfigOption(draft, category, key);
         var label = new TextBlock { Text = translated.Label, ToolTip = translated.Tooltip, Foreground = Brushes.White, VerticalAlignment = VerticalAlignment.Center, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 12, 0) }; grid.Children.Add(label);
         FrameworkElement editor;
-        if (value is JsonObject compound && compound["enabled"] is JsonValue enabledValue && enabledValue.TryGetValue<bool>(out var compoundEnabled) && compound["hotkey"] is JsonObject compoundHotkey)
+        var hasDetectedHotkey = TryResolveHotkey(value, out var detectedHotkeyOwner, out var detectedHotkeyKey);
+        if (value is JsonObject compound && compound["enabled"] is JsonValue enabledValue && enabledValue.TryGetValue<bool>(out var compoundEnabled) && hasDetectedHotkey)
         {
-            editor = BuildToggleHotkeyEditor(compound, "enabled", compoundEnabled, compoundHotkey, "hotkey");
+            editor = BuildToggleHotkeyEditor(compound, "enabled", compoundEnabled, detectedHotkeyOwner!, detectedHotkeyKey!);
         }
         else if (pairedHotkey != null && editableValue is JsonValue pairedScalar && pairedScalar.TryGetValue<bool>(out var pairedEnabled))
         {
-            editor = BuildToggleHotkeyEditor(editOwner, editKey, pairedEnabled, pairedHotkey, "hotkey");
+            TryResolveHotkey(pairedHotkey, out var pairedOwner, out var pairedKey);
+            editor = BuildToggleHotkeyEditor(editOwner, editKey, pairedEnabled, pairedOwner ?? pairedHotkey, pairedKey ?? "keys");
+        }
+        else if (hasDetectedHotkey)
+        {
+            editor = BuildHotkeyEditor(detectedHotkeyOwner!, detectedHotkeyKey!);
         }
         else if (editKey == "keys")
         {
@@ -217,14 +273,29 @@ public partial class MainWindow
         Grid.SetColumn(editor, 1); grid.Children.Add(editor); border.Child = grid; return border;
     }
 
+    private static bool TryResolveHotkey(JsonNode? value, out JsonObject? owner, out string? key)
+    {
+        owner = null; key = null; if (value is not JsonObject obj) return false;
+        foreach (var candidate in new[] { "keys", "keybind", "shortcut", "binding" })
+        {
+            if (obj[candidate] is JsonValue scalar && scalar.TryGetValue<string>(out _)) { owner = obj; key = candidate; return true; }
+        }
+        foreach (var container in new[] { "hotkey", "keybind", "shortcut", "binding" })
+        {
+            if (obj[container] is not JsonObject nested) continue;
+            foreach (var candidate in new[] { "keys", "key", "value", "binding" })
+                if (nested[candidate] is JsonValue scalar && scalar.TryGetValue<string>(out _)) { owner = nested; key = candidate; return true; }
+        }
+        return false;
+    }
+
     private FrameworkElement BuildToggleHotkeyEditor(JsonObject toggleOwner, string toggleKey, bool enabled, JsonObject hotkeyOwner, string hotkeyKey)
     {
         var grid = new Grid(); grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(116) }); grid.ColumnDefinitions.Add(new ColumnDefinition());
         var toggle = new Button { Content = enabled ? "true" : "false", Foreground = new SolidColorBrush(enabled ? Color.FromRgb(88, 220, 120) : Color.FromRgb(255, 105, 115)), Background = new SolidColorBrush(Color.FromRgb(126, 126, 126)), Margin = new Thickness(0, 0, 8, 0) };
         toggle.Click += (_, _) => { var next = !(toggleOwner[toggleKey]?.GetValue<bool>() ?? false); toggleOwner[toggleKey] = next; toggle.Content = next ? "true" : "false"; toggle.Foreground = new SolidColorBrush(next ? Color.FromRgb(88, 220, 120) : Color.FromRgb(255, 105, 115)); MarkModConfigDraftChanged(); };
         grid.Children.Add(toggle);
-        var actualHotkeyOwner = hotkeyOwner[hotkeyKey] as JsonObject ?? hotkeyOwner;
-        var hotkey = BuildHotkeyEditor(actualHotkeyOwner, "keys"); Grid.SetColumn(hotkey, 1); grid.Children.Add(hotkey); return grid;
+        var hotkey = BuildHotkeyEditor(hotkeyOwner, hotkeyKey); Grid.SetColumn(hotkey, 1); grid.Children.Add(hotkey); return grid;
     }
 
     private FrameworkElement BuildHotkeyEditor(JsonObject owner, string key)
@@ -260,6 +331,34 @@ public partial class MainWindow
         Key.Oem1 => "SEMICOLON", Key.Oem2 => "SLASH", Key.Oem3 => "GRAVE_ACCENT", Key.Oem4 => "LEFT_BRACKET", Key.Oem5 => "BACKSLASH", Key.Oem6 => "RIGHT_BRACKET", Key.Oem7 => "APOSTROPHE", Key.OemComma => "COMMA", Key.OemPeriod => "PERIOD", Key.OemMinus => "MINUS", Key.OemPlus => "EQUAL",
         Key.Return => "ENTER", Key.Back => "BACKSPACE", Key.Space => "SPACE", Key.Escape => "ESCAPE", _ => key.ToString().ToUpperInvariant()
     };
+
+    private FrameworkElement BuildDiscoveredHotkeyRow(ModConfigDraft draft, string key)
+    {
+        var border = new Border { Margin = new Thickness(0, 0, 0, 8), Padding = new Thickness(12, 9, 12, 9), CornerRadius = new CornerRadius(8), Background = new SolidColorBrush(Color.FromArgb(175, 47, 47, 47)), BorderBrush = new SolidColorBrush(Color.FromRgb(116, 116, 116)), BorderThickness = new Thickness(1) };
+        var grid = new Grid(); grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1.05, GridUnitType.Star) }); grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1.4, GridUnitType.Star) });
+        var translated = TranslateConfigOption(draft, "Hotkeys", key); grid.Children.Add(new TextBlock { Text = translated.Label, ToolTip = translated.Tooltip, Foreground = Brushes.White, VerticalAlignment = VerticalAlignment.Center, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 12, 0) });
+        var editor = BuildHotkeyEditor(draft.HotkeyOverrides, key); Grid.SetColumn(editor, 1); grid.Children.Add(editor); border.Child = grid; return border;
+    }
+
+    private List<string> DiscoverHotkeyNames(ModConfigDefinition definition)
+    {
+        var info = FindModTranslationInfo(definition); if (info == null || string.IsNullOrWhiteSpace(info.JarPath) || !File.Exists(info.JarPath)) return [];
+        var prefixes = definition.Id == "inventoryprofilesnext" ? new[] { "inventoryprofiles.config.name." } : new[] { $"{definition.Id}.config.name.", $"{definition.Id}.config.hotkey.name." };
+        var candidates = info.EnglishTranslations.Keys.Concat(info.ChineseTranslations.Keys).Distinct(StringComparer.OrdinalIgnoreCase)
+            .Select(key => prefixes.FirstOrDefault(prefix => key.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)) is { } prefix ? key[prefix.Length..] : null)
+            .Where(key => !string.IsNullOrWhiteSpace(key)).Cast<string>().Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        try
+        {
+            using var zip = ZipFile.OpenRead(info.JarPath); var hotkeyClassText = new StringBuilder();
+            foreach (var entry in zip.Entries.Where(entry => entry.FullName.EndsWith(".class", StringComparison.OrdinalIgnoreCase) && (entry.FullName.Contains("hotkey", StringComparison.OrdinalIgnoreCase) || entry.FullName.Contains("keybind", StringComparison.OrdinalIgnoreCase) || entry.FullName.Contains("shortcut", StringComparison.OrdinalIgnoreCase))))
+            {
+                using var stream = entry.Open(); using var memory = new MemoryStream(); stream.CopyTo(memory); hotkeyClassText.Append(Encoding.Latin1.GetString(memory.ToArray()));
+            }
+            var classText = hotkeyClassText.ToString();
+            return candidates.Where(key => classText.Contains(key, StringComparison.OrdinalIgnoreCase) || classText.Contains(key.ToUpperInvariant(), StringComparison.Ordinal)).Order(StringComparer.OrdinalIgnoreCase).ToList();
+        }
+        catch { return []; }
+    }
 
     private static string ScalarDisplay(JsonNode? value)
     {
@@ -429,7 +528,15 @@ public partial class MainWindow
             var destination = Path.Combine(root, draft.Definition.Id); if (Directory.Exists(destination)) Directory.Delete(destination, true); Directory.CreateDirectory(destination);
             if (Directory.Exists(draft.SourcePath)) CopyDirectory(draft.SourcePath, destination); else File.Copy(draft.SourcePath, Path.Combine(destination, Path.GetFileName(draft.SourcePath)), true);
             var primary = draft.Definition.PrimaryJson.Length > 0 ? Path.Combine(destination, draft.Definition.PrimaryJson) : Path.Combine(destination, Path.GetFileName(draft.SourcePath));
-            if (draft.Json != null) File.WriteAllText(primary, draft.Json.ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
+            if (draft.Json != null)
+            {
+                if (draft.HotkeyOverrides.Count > 0)
+                {
+                    var hotkeys = draft.Json["Hotkeys"] as JsonObject ?? new JsonObject(); draft.Json["Hotkeys"] = hotkeys;
+                    foreach (var item in draft.HotkeyOverrides) hotkeys[item.Key] = new JsonObject { ["keys"] = item.Value?.DeepClone() };
+                }
+                File.WriteAllText(primary, draft.Json.ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
+            }
         }
         SettingsStore.Save(settings); RefreshModConfigProfiles(); StatusText.Text = $"已保存 Mod 配置：{settings.ActiveModConfigProfile}";
     }
