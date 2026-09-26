@@ -26,6 +26,9 @@ public partial class MainWindow : Window
     private bool switchingProfile;
     private ComboBox? keyProfileCombo;
     private bool switchingKeyProfile;
+    private CheckBox? countConflictCheck;
+    private bool syncingConflictCheck;
+    private string? selectedPhysicalKey;
     private string draftSelectedShader = "";
     private CancellationTokenSource? shaderPreviewRefresh;
 
@@ -45,10 +48,14 @@ public partial class MainWindow : Window
             var import = new Button { Content = "导入 options.txt", Margin = new Thickness(0, 0, 10, 0) }; import.Click += ImportOptions_Click; homeButtons.Children.Insert(0, import);
         }
         if (FindLogicalParent<StackPanel>(CaptureButton) is not { } editor) return;
+        KeyOccupancyList.Visibility = Visibility.Collapsed;
         var box = new Border { Background = new SolidColorBrush(Color.FromArgb(56, 26, 42, 56)), CornerRadius = new CornerRadius(10), Padding = new Thickness(10), Margin = new Thickness(0, 8, 0, 10) };
         var content = new StackPanel(); content.Children.Add(new TextBlock { Text = "键位配置草稿", Foreground = new SolidColorBrush(Color.FromRgb(175, 199, 221)), Margin = new Thickness(0, 0, 0, 7) });
         keyProfileCombo = new ComboBox(); keyProfileCombo.SelectionChanged += KeyProfile_SelectionChanged; content.Children.Add(keyProfileCombo);
         var buttons = new WrapPanel { Margin = new Thickness(0, 8, 0, 0) }; var add = new Button { Content = "新建", Padding = new Thickness(12, 6, 12, 6) }; add.Click += AddKeyProfile_Click; var rename = new Button { Content = "重命名", Padding = new Thickness(12, 6, 12, 6), Margin = new Thickness(6, 0, 6, 0), Background = new SolidColorBrush(Color.FromRgb(56, 71, 86)) }; rename.Click += RenameKeyProfile_Click; var save = new Button { Content = "保存配置", Padding = new Thickness(12, 6, 12, 6) }; save.Click += SaveKeyProfile_Click; buttons.Children.Add(add); buttons.Children.Add(rename); buttons.Children.Add(save); content.Children.Add(buttons); box.Child = content; editor.Children.Insert(3, box); RefreshKeyProfileSelector();
+        countConflictCheck = new CheckBox { Content = "计入冲突检测", IsChecked = true, Margin = new Thickness(0, 8, 0, 8), ToolTip = "关闭后，这个功能即使与其他功能使用同一按键，也不会被标为冲突。" };
+        countConflictCheck.Checked += ConflictParticipation_Changed; countConflictCheck.Unchecked += ConflictParticipation_Changed;
+        if (FindButtonByContent(editor, "清除绑定") is { } clearButton) editor.Children.Insert(editor.Children.IndexOf(clearButton) + 1, countConflictCheck); else editor.Children.Add(countConflictCheck);
     }
 
     private static Button? FindButtonByContent(DependencyObject root, string text)
@@ -102,14 +109,14 @@ public partial class MainWindow : Window
     }
     private void LoadKeysFromOptions(Dictionary<string, string> options, string sourceDirectory, bool includeInDraft)
     {
-        mods = MinecraftConfig.ScanMods(sourceDirectory); allKeys.Clear();
+        mods = MinecraftConfig.ScanMods(sourceDirectory); allKeys.Clear(); selectedPhysicalKey = null;
         foreach (var pair in options.Where(p => p.Key.StartsWith("key_", StringComparison.Ordinal)))
         {
             var mod = MinecraftConfig.MatchKeyToMod(pair.Key, mods); var translationKey = pair.Key[4..];
             mod.EnglishTranslations.TryGetValue(translationKey, out var english); mod.ChineseTranslations.TryGetValue(translationKey, out var chinese);
             english = string.IsNullOrWhiteSpace(english) ? Humanize(pair.Key) : english; chinese ??= "";
             var item = new KeyBindingItem { OptionKey = pair.Key, DisplayName = string.IsNullOrWhiteSpace(chinese) ? english : chinese, FunctionEnglish = english, FunctionChinese = chinese, ModId = mod.Id, ModDisplayName = mod.DisplayName, IsLibrary = mod.IsLibrary, OriginalValue = pair.Value, Value = pair.Value, Remember = includeInDraft };
-            if (!includeInDraft && settings.KeyProfiles.TryGetValue(settings.ActiveKeyProfile, out var keyProfile) && keyProfile.ModBindings.TryGetValue(mod.Id, out var savedMap) && savedMap.TryGetValue(pair.Key, out var saved)) { item.Value = saved; item.Remember = true; } allKeys.Add(item);
+            if (!includeInDraft && settings.KeyProfiles.TryGetValue(settings.ActiveKeyProfile, out var keyProfile)) { if (keyProfile.ModBindings.TryGetValue(mod.Id, out var savedMap) && savedMap.TryGetValue(pair.Key, out var saved)) { item.Value = saved; item.Remember = true; } item.CountsAsConflict = !keyProfile.ConflictExcluded.Contains(pair.Key); } allKeys.Add(item);
         }
         ModFilter.ItemsSource = new[] { "全部有键位的 Mod" }.Concat(allKeys.GroupBy(k => k.ModId).Select(g => g.First().ModDisplayName).Order()).ToList(); ModFilter.SelectedIndex = 0; RefreshKeyList(); BuildKeyboard(); RefreshSummary(); StatusText.Text = $"已导入 {Path.GetFileName(instance)}：{allKeys.Select(k => k.ModId).Distinct().Count()} 个有键位 Mod，{allKeys.Count} 个键位";
     }
@@ -245,6 +252,7 @@ public partial class MainWindow : Window
     private void EnsureKeyProfiles()
     {
         if (settings.KeyProfiles.Count == 0) settings.KeyProfiles["默认键位"] = new KeyProfile { ModBindings = settings.ModKeyProfiles.ToDictionary(x => x.Key, x => new Dictionary<string, string>(x.Value, StringComparer.Ordinal), StringComparer.OrdinalIgnoreCase) };
+        foreach (var profile in settings.KeyProfiles.Values) profile.ConflictExcluded ??= new HashSet<string>(StringComparer.Ordinal);
         if (!settings.KeyProfiles.ContainsKey(settings.ActiveKeyProfile)) settings.ActiveKeyProfile = settings.KeyProfiles.Keys.First();
     }
     private void RefreshKeyProfileSelector() { if (keyProfileCombo == null) return; switchingKeyProfile = true; keyProfileCombo.ItemsSource = settings.KeyProfiles.Keys.Order().ToList(); keyProfileCombo.SelectedItem = settings.ActiveKeyProfile; switchingKeyProfile = false; }
@@ -254,7 +262,7 @@ public partial class MainWindow : Window
     }
     private void ApplyKeyProfileDraft()
     {
-        settings.KeyProfiles.TryGetValue(settings.ActiveKeyProfile, out var profile); foreach (var key in allKeys) { key.Value = key.OriginalValue; key.Remember = false; if (profile?.ModBindings.TryGetValue(key.ModId, out var map) == true && map.TryGetValue(key.OptionKey, out var value)) { key.Value = value; key.Remember = true; } } BuildKeyboard(); RefreshKeyList();
+        settings.KeyProfiles.TryGetValue(settings.ActiveKeyProfile, out var profile); foreach (var key in allKeys) { key.Value = key.OriginalValue; key.Remember = false; key.CountsAsConflict = profile?.ConflictExcluded.Contains(key.OptionKey) != true; if (profile?.ModBindings.TryGetValue(key.ModId, out var map) == true && map.TryGetValue(key.OptionKey, out var value)) { key.Value = value; key.Remember = true; } } BuildKeyboard(); RefreshKeyList();
     }
     private void AddKeyProfile_Click(object? sender, RoutedEventArgs e)
     {
@@ -266,7 +274,7 @@ public partial class MainWindow : Window
     }
     private void SaveKeyProfile_Click(object? sender, RoutedEventArgs e)
     {
-        var profile = new KeyProfile(); foreach (var group in allKeys.Where(k => k.Remember).GroupBy(k => k.ModId)) profile.ModBindings[group.Key] = group.ToDictionary(k => k.OptionKey, k => k.Value, StringComparer.Ordinal); settings.KeyProfiles[settings.ActiveKeyProfile] = profile; settings.ModKeyProfiles = profile.ModBindings.ToDictionary(x => x.Key, x => new Dictionary<string, string>(x.Value, StringComparer.Ordinal), StringComparer.OrdinalIgnoreCase); SettingsStore.Save(settings); StatusText.Text = $"已保存键位配置：{settings.ActiveKeyProfile}";
+        var profile = new KeyProfile { ConflictExcluded = allKeys.Where(k => !k.CountsAsConflict).Select(k => k.OptionKey).ToHashSet(StringComparer.Ordinal) }; foreach (var group in allKeys.Where(k => k.Remember).GroupBy(k => k.ModId)) profile.ModBindings[group.Key] = group.ToDictionary(k => k.OptionKey, k => k.Value, StringComparer.Ordinal); settings.KeyProfiles[settings.ActiveKeyProfile] = profile; settings.ModKeyProfiles = profile.ModBindings.ToDictionary(x => x.Key, x => new Dictionary<string, string>(x.Value, StringComparer.Ordinal), StringComparer.OrdinalIgnoreCase); SettingsStore.Save(settings); StatusText.Text = $"已保存键位配置：{settings.ActiveKeyProfile}";
     }
     private void PackProfile_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
@@ -296,25 +304,26 @@ public partial class MainWindow : Window
     private void KeyFilterChanged(object sender, EventArgs e) { if (IsLoaded) RefreshKeyList(); }
     private void RefreshKeyList()
     {
-        if (KeyList == null) return; IEnumerable<KeyBindingItem> q = allKeys; if (!string.IsNullOrWhiteSpace(KeySearch.Text)) q = q.Where(k => (k.FunctionDisplay + k.OptionKey + k.ModDisplayName + k.ModId + k.KeyLabel).Contains(KeySearch.Text, StringComparison.OrdinalIgnoreCase)); if (ModFilter.SelectedItem is string mod && mod != "全部有键位的 Mod") q = q.Where(k => k.ModDisplayName == mod); if (ConflictOnly.IsChecked == true) { var c = allKeys.Where(k => !k.Value.EndsWith("unknown")).GroupBy(k => k.Value).Where(g => g.Count() > 1).Select(g => g.Key).ToHashSet(); q = q.Where(k => c.Contains(k.Value)); } KeyList.ItemsSource = q.ToList();
+        if (KeyList == null) return; IEnumerable<KeyBindingItem> q = allKeys; if (!string.IsNullOrWhiteSpace(selectedPhysicalKey)) q = q.Where(k => NormalizeKeyLabel(k.KeyLabel.Split(':')[0]).Equals(selectedPhysicalKey, StringComparison.OrdinalIgnoreCase)); if (!string.IsNullOrWhiteSpace(KeySearch.Text)) q = q.Where(k => (k.FunctionDisplay + k.OptionKey + k.ModDisplayName + k.ModId + k.KeyLabel).Contains(KeySearch.Text, StringComparison.OrdinalIgnoreCase)); if (ModFilter.SelectedItem is string mod && mod != "全部有键位的 Mod") q = q.Where(k => k.ModDisplayName == mod); if (ConflictOnly.IsChecked == true) { var c = allKeys.Where(k => k.CountsAsConflict && !k.Value.EndsWith("unknown")).GroupBy(k => k.Value).Where(g => g.Count() > 1).Select(g => g.Key).ToHashSet(); q = q.Where(k => k.CountsAsConflict && c.Contains(k.Value)); } KeyList.ItemsSource = q.ToList();
     }
     private void BuildKeyboard()
     {
-        KeyboardPanel.Children.Clear(); var active = allKeys.Where(k => !k.Value.Contains("unknown", StringComparison.OrdinalIgnoreCase)).ToList(); var counts = active.GroupBy(k => NormalizeKeyLabel(k.KeyLabel.Split(':')[0])).ToDictionary(g => g.Key, g => g.Count(), StringComparer.OrdinalIgnoreCase); var conflictKeys = active.GroupBy(k => k.Value, StringComparer.OrdinalIgnoreCase).Where(g => g.Count() > 1).Select(g => NormalizeKeyLabel(g.First().KeyLabel.Split(':')[0])).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        KeyboardPanel.Children.Clear(); var active = allKeys.Where(k => !k.Value.Contains("unknown", StringComparison.OrdinalIgnoreCase)).ToList(); var counts = active.GroupBy(k => NormalizeKeyLabel(k.KeyLabel.Split(':')[0])).ToDictionary(g => g.Key, g => g.Count(), StringComparer.OrdinalIgnoreCase); var conflictKeys = active.Where(k => k.CountsAsConflict).GroupBy(k => k.Value, StringComparer.OrdinalIgnoreCase).Where(g => g.Count() > 1).Select(g => NormalizeKeyLabel(g.First().KeyLabel.Split(':')[0])).ToHashSet(StringComparer.OrdinalIgnoreCase);
         var selectedLayout = LayoutCombo.SelectedItem as string ?? "108 键全尺寸"; if (!KeyboardLayouts.TryGetValue(selectedLayout, out var rows)) rows = KeyboardLayouts["108 键全尺寸"];
-        foreach (var row in rows) { var panel = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Center }; foreach (var key in row) { counts.TryGetValue(key, out var used); var width = key switch { "SPACE" => 245, "BACKSPACE" or "RSHIFT" or "LSHIFT" or "ENTER" => 92, "CAPS" or "TAB" => 72, _ => 48 }; var b = new Button { Content = used == 0 ? key : $"{key}\n{used}", ToolTip = key, Margin = new(3), Width = width, Height = 42, FontSize = key.Length > 3 ? 8.5 : 12, Background = new SolidColorBrush(conflictKeys.Contains(key) ? Color.FromRgb(190, 64, 74) : used > 0 ? Color.FromRgb(0, 120, 212) : Color.FromRgb(48, 61, 75)), Tag = key }; b.Click += KeyboardKey_Click; panel.Children.Add(b); } KeyboardPanel.Children.Add(panel); } Dispatcher.BeginInvoke(FitKeyboard, System.Windows.Threading.DispatcherPriority.Loaded);
+        foreach (var row in rows) { var panel = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Center }; foreach (var key in row) { counts.TryGetValue(key, out var used); var width = key switch { "SPACE" => 245, "BACKSPACE" or "RSHIFT" or "LSHIFT" or "ENTER" => 92, "CAPS" or "TAB" => 72, _ => 48 }; var selected = selectedPhysicalKey?.Equals(key, StringComparison.OrdinalIgnoreCase) == true; var b = new Button { Content = used == 0 ? key : $"{key}\n{used}", ToolTip = key, Margin = new(3), Width = width, Height = 42, FontSize = key.Length > 3 ? 8.5 : 12, Background = new SolidColorBrush(conflictKeys.Contains(key) ? Color.FromRgb(190, 64, 74) : used > 0 ? Color.FromRgb(0, 120, 212) : Color.FromRgb(48, 61, 75)), BorderBrush = new SolidColorBrush(selected ? Color.FromRgb(91, 205, 255) : Colors.Transparent), BorderThickness = selected ? new Thickness(3) : new Thickness(0), Tag = key }; b.Click += KeyboardKey_Click; panel.Children.Add(b); } KeyboardPanel.Children.Add(panel); } Dispatcher.BeginInvoke(FitKeyboard, System.Windows.Threading.DispatcherPriority.Loaded);
     }
     private void FitKeyboard() { if (!IsLoaded || KeyboardPanel.Children.Count == 0) return; KeyboardPanel.LayoutTransform = Transform.Identity; KeyboardPanel.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity)); var available = Math.Max(100, ActualWidth - 330); var scale = Math.Min(1, available / Math.Max(1, KeyboardPanel.DesiredSize.Width)); KeyboardPanel.LayoutTransform = new ScaleTransform(scale, scale); }
     private static string NormalizeKeyLabel(string key) => key.Replace("LEFT ", "L").Replace("RIGHT ", "R").Replace("LEFT", "L").Replace("RIGHT", "R").Replace("RETURN", "ENTER").Replace("OEM", "").Trim();
-    private void KeyboardKey_Click(object sender, RoutedEventArgs e) { var key = (string)((Button)sender).Tag; var matches = allKeys.Where(k => NormalizeKeyLabel(k.KeyLabel.Split(':')[0]).Equals(key, StringComparison.OrdinalIgnoreCase)).ToList(); KeyOccupancyList.ItemsSource = matches; SelectedKeyName.Text = matches.Count == 0 ? $"{key}：未占用" : $"{key}：{matches.Count} 个功能占用"; SelectedKeyMod.Text = matches.Count > 1 ? "这里包含相同主键的全部组合；只有组合键完全相同才算冲突。" : ""; }
+    private void KeyboardKey_Click(object sender, RoutedEventArgs e) { var key = (string)((Button)sender).Tag; selectedPhysicalKey = selectedPhysicalKey?.Equals(key, StringComparison.OrdinalIgnoreCase) == true ? null : key; KeyList.SelectedItem = null; RefreshKeyList(); var matches = string.IsNullOrWhiteSpace(selectedPhysicalKey) ? [] : allKeys.Where(k => NormalizeKeyLabel(k.KeyLabel.Split(':')[0]).Equals(selectedPhysicalKey, StringComparison.OrdinalIgnoreCase)).ToList(); SelectedKeyName.Text = selectedPhysicalKey == null ? "未选择键帽：左侧显示全部键位功能" : $"{selectedPhysicalKey}：左侧显示 {matches.Count} 个占用功能"; SelectedKeyMod.Text = selectedPhysicalKey == null ? "" : "请在左侧选择具体功能进行编辑；再次点击该键帽可取消筛选。"; BuildKeyboard(); }
     private void LayoutCombo_SelectionChanged(object sender, SelectionChangedEventArgs e) { if (!IsLoaded || LayoutCombo.SelectedItem is not string layout) return; settings.KeyboardLayout = layout; SettingsStore.Save(settings); BuildKeyboard(); }
     private KeyBindingItem? SelectedKey => KeyList.SelectedItem as KeyBindingItem;
-    private void KeyList_SelectionChanged(object sender, SelectionChangedEventArgs e) { if (SelectedKey is not { } k) return; SelectedKeyName.Text = k.FunctionDisplay; SelectedKeyMod.Text = k.ModDisplayName + (k.IsLibrary ? "  ·  前置/依赖库" : ""); KeyOccupancyList.ItemsSource = allKeys.Where(x => x.Value == k.Value).ToList(); RememberKey.IsChecked = k.Remember; CaptureButton.Content = $"当前：{k.KeyLabel}（点击重新绑定）"; }
+    private void KeyList_SelectionChanged(object sender, SelectionChangedEventArgs e) { if (SelectedKey is not { } k) return; SelectedKeyName.Text = k.FunctionDisplay; SelectedKeyMod.Text = k.ModDisplayName + (k.IsLibrary ? "  ·  前置/依赖库" : ""); RememberKey.IsChecked = k.Remember; syncingConflictCheck = true; if (countConflictCheck != null) countConflictCheck.IsChecked = k.CountsAsConflict; syncingConflictCheck = false; CaptureButton.Content = $"当前：{k.KeyLabel}（点击重新绑定）"; }
     private void CaptureButton_Click(object sender, RoutedEventArgs e) { if (SelectedKey == null) return; capturing = true; CaptureButton.Content = "请按主键，支持 Ctrl / Shift / Alt + 主键"; CaptureButton.Focus(); Keyboard.Focus(CaptureButton); }
     private void CaptureButton_KeyDown(object sender, KeyEventArgs e) { if (!capturing || SelectedKey == null) return; e.Handled = true; var key = e.Key == Key.System ? e.SystemKey : e.Key; if (key is Key.LeftCtrl or Key.RightCtrl or Key.LeftShift or Key.RightShift or Key.LeftAlt or Key.RightAlt) { CaptureButton.Content = $"已按下 {key}，请继续按主键"; return; } var minecraftKey = ToMinecraftKey(key); var modifier = (Keyboard.Modifiers & ModifierKeys.Control) != 0 ? ":CONTROL" : (Keyboard.Modifiers & ModifierKeys.Shift) != 0 ? ":SHIFT" : (Keyboard.Modifiers & ModifierKeys.Alt) != 0 ? ":ALT" : ""; SelectedKey.Value = "key.keyboard." + minecraftKey + modifier; capturing = false; CaptureButton.Content = $"当前：{SelectedKey.KeyLabel}（点击重新绑定）"; BuildKeyboard(); RefreshKeyList(); }
     private static string ToMinecraftKey(Key key) => key switch { Key.Oem1 => "semicolon", Key.Oem2 => "slash", Key.Oem3 => "grave.accent", Key.Oem4 => "left.bracket", Key.Oem5 => "backslash", Key.Oem6 => "right.bracket", Key.Oem7 => "apostrophe", Key.OemComma => "comma", Key.OemPeriod => "period", Key.OemMinus => "minus", Key.OemPlus => "equal", Key.Return => "enter", Key.Back => "backspace", Key.Space => "space", Key.LeftShift => "left.shift", Key.RightShift => "right.shift", Key.LeftCtrl => "left.control", Key.RightCtrl => "right.control", Key.LeftAlt => "left.alt", Key.RightAlt => "right.alt", >= Key.D0 and <= Key.D9 => ((int)key - (int)Key.D0).ToString(), >= Key.NumPad0 and <= Key.NumPad9 => "keypad." + ((int)key - (int)Key.NumPad0), _ => key.ToString().ToLowerInvariant() };
     private void ClearKey_Click(object sender, RoutedEventArgs e) { if (SelectedKey == null) return; SelectedKey.Value = "key.keyboard.unknown"; BuildKeyboard(); RefreshKeyList(); }
     private void RememberKey_Changed(object sender, RoutedEventArgs e) { if (SelectedKey == null) return; SelectedKey.Remember = RememberKey.IsChecked == true; StatusText.Text = "键位配置已修改（尚未保存）"; }
+    private void ConflictParticipation_Changed(object sender, RoutedEventArgs e) { if (syncingConflictCheck || SelectedKey == null) return; SelectedKey.CountsAsConflict = countConflictCheck?.IsChecked == true; StatusText.Text = "冲突检测设置已修改（尚未保存）"; BuildKeyboard(); RefreshKeyList(); RefreshSummary(); }
 
     private void Apply_Click(object sender, RoutedEventArgs e)
     {
@@ -323,7 +332,7 @@ public partial class MainWindow : Window
     }
     private void ApplyShaderSelection() { if (string.IsNullOrWhiteSpace(draftSelectedShader)) return; PatchProperty(Path.Combine(instance, "config", "iris.properties"), "shaderPack", draftSelectedShader); PatchProperty(Path.Combine(instance, "optionsof.txt"), "ofShaderPack", draftSelectedShader); }
     private static void PatchProperty(string file, string key, string value) { if (!File.Exists(file)) return; File.Copy(file, file + ".mcprofilestudio.bak", true); var lines = File.ReadAllLines(file).ToList(); var i = lines.FindIndex(x => x.StartsWith(key + "=", StringComparison.Ordinal)); if (i >= 0) lines[i] = key + "=" + value; else lines.Add(key + "=" + value); File.WriteAllLines(file, lines); }
-    private void RefreshSummary() { PackCount.Text = packs.Count.ToString(); ModCount.Text = allKeys.Select(k => k.ModId).Distinct().Count().ToString(); var conflicts = allKeys.Where(k => !k.Value.EndsWith("unknown")).GroupBy(k => k.Value).Count(g => g.Count() > 1); KeyCount.Text = $"{allKeys.Count} / {conflicts}"; LibrarySummary.Text = $"资源包：{(settings.PackLibrary.Length == 0 ? "未设置" : settings.PackLibrary)}\n光影包：{(settings.ShaderLibrary.Length == 0 ? "未设置" : settings.ShaderLibrary)}"; }
+    private void RefreshSummary() { PackCount.Text = packs.Count.ToString(); ModCount.Text = allKeys.Select(k => k.ModId).Distinct().Count().ToString(); var conflicts = allKeys.Where(k => k.CountsAsConflict && !k.Value.EndsWith("unknown")).GroupBy(k => k.Value).Count(g => g.Count() > 1); KeyCount.Text = $"{allKeys.Count} / {conflicts}"; LibrarySummary.Text = $"资源包：{(settings.PackLibrary.Length == 0 ? "未设置" : settings.PackLibrary)}\n光影包：{(settings.ShaderLibrary.Length == 0 ? "未设置" : settings.ShaderLibrary)}"; }
 
     private static Dictionary<string, string[][]> CreateKeyboardLayouts()
     {

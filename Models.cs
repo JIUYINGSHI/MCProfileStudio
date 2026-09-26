@@ -25,6 +25,7 @@ public class KeyBindingItem : INotifyPropertyChanged
 {
     private string _value = "key.keyboard.unknown";
     private bool _remember;
+    private bool _countsAsConflict = true;
     public string OptionKey { get; set; } = "";
     public string DisplayName { get; set; } = "";
     public string ModId { get; set; } = "minecraft";
@@ -36,6 +37,7 @@ public class KeyBindingItem : INotifyPropertyChanged
     public string OriginalValue { get; set; } = "";
     public string Value { get => _value; set { _value = value; OnChanged(); OnChanged(nameof(KeyLabel)); } }
     public bool Remember { get => _remember; set { _remember = value; OnChanged(); } }
+    public bool CountsAsConflict { get => _countsAsConflict; set { _countsAsConflict = value; OnChanged(); } }
     public string KeyLabel => Value.Replace("key.keyboard.", "").Replace("key.mouse.", "鼠标 ").Replace(".", " ").ToUpperInvariant();
     public event PropertyChangedEventHandler? PropertyChanged;
     private void OnChanged([CallerMemberName] string? name = null) => PropertyChanged?.Invoke(this, new(name));
@@ -66,6 +68,7 @@ public class PackProfile
 public class KeyProfile
 {
     public Dictionary<string, Dictionary<string, string>> ModBindings { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+    public HashSet<string> ConflictExcluded { get; set; } = new(StringComparer.Ordinal);
 }
 
 public class ModInfo
