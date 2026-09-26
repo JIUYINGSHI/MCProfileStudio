@@ -55,6 +55,12 @@ public partial class MainWindow
     private TextBox? modConfigSearch;
     private TextBlock? modConfigHint;
     private readonly List<ModConfigDraft> modConfigDrafts = [];
+    private readonly Dictionary<ModConfigDraft, (string Search, string Language, List<TabItem> Tabs)> modConfigViewCache = [];
+    private readonly Dictionary<string, List<string>> hotkeyDiscoveryCache = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, List<DiscoveredBooleanOption>> booleanDiscoveryCache = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, ModInfo?> modTranslationInfoCache = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, string> modCategoryTranslationCache = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, (string Label, string Tooltip)> modOptionTranslationCache = new(StringComparer.OrdinalIgnoreCase);
     private bool switchingModConfigProfile;
 
     private string ModConfigProfilesRoot => Path.Combine(SettingsStore.Root, "mod-config-profiles");
@@ -137,6 +143,8 @@ public partial class MainWindow
     {
         if (modConfigModList == null) return;
         modConfigDrafts.Clear();
+        modConfigViewCache.Clear();
+        modTranslationInfoCache.Clear(); modCategoryTranslationCache.Clear(); modOptionTranslationCache.Clear();
         if (!string.IsNullOrWhiteSpace(instance))
         {
             foreach (var definition in SupportedModConfigs)
@@ -164,28 +172,39 @@ public partial class MainWindow
         if (modConfigTabs == null) return; modConfigTabs.Items.Clear();
         if (modConfigModList?.SelectedItem is not ModConfigDraft draft || draft.Json == null) return;
         var search = modConfigSearch?.Text?.Trim() ?? "";
+        if (modConfigViewCache.TryGetValue(draft, out var cached) && cached.Search == search && cached.Language == settings.ModConfigLanguage)
+        {
+            foreach (var tab in cached.Tabs) modConfigTabs.Items.Add(tab);
+            if (modConfigTabs.Items.Count > 0) modConfigTabs.SelectedIndex = 0;
+            return;
+        }
+        var functionPanel = new StackPanel { Margin = new Thickness(4) };
+        var hotkeyPanel = new StackPanel { Margin = new Thickness(4) };
         foreach (var category in draft.Json)
         {
             if (category.Key == "TweakHotkeys" && draft.Json["TweakToggles"] is JsonObject) continue;
             if (category.Key == "DisableHotkeys" && draft.Json["DisableToggles"] is JsonObject) continue;
-            var panel = new StackPanel { Margin = new Thickness(4) };
+            var functionGroup = new StackPanel();
+            var hotkeyGroup = new StackPanel();
             if (category.Value is JsonObject group)
             {
-                RenderJsonObjectRows(draft, category.Key, group, panel, search, "");
+                RenderJsonObjectRows(draft, category.Key, group, functionGroup, hotkeyGroup, search, "");
             }
-            else panel.Children.Add(BuildModOptionRow(draft, category.Key, draft.Json, category.Key, category.Value));
-            if (panel.Children.Count == 0) continue;
-            var scroll = new ScrollViewer { Content = panel, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled };
-            modConfigTabs.Items.Add(new TabItem { Header = TranslateCategory(draft, category.Key), Content = scroll });
+            else
+            {
+                var target = IsHotkeyEntry(category.Key, category.Value, null) ? hotkeyGroup : functionGroup;
+                target.Children.Add(BuildModOptionRow(draft, category.Key, draft.Json, category.Key, category.Value));
+            }
+            AppendMergedGroup(functionPanel, functionGroup, TranslateCategory(draft, category.Key));
+            AppendMergedGroup(hotkeyPanel, hotkeyGroup, TranslateCategory(draft, category.Key));
         }
         var existingHotkeys = CollectExistingHotkeyNames(draft.Json);
         var discovered = draft.DiscoveredHotkeys.Where(key => !existingHotkeys.Contains(key)).Where(key => search.Length == 0 || TranslateConfigOption(draft, "Hotkeys", key).Label.Contains(search, StringComparison.OrdinalIgnoreCase) || key.Contains(search, StringComparison.OrdinalIgnoreCase)).ToList();
         if (discovered.Count > 0)
         {
-            var panel = new StackPanel { Margin = new Thickness(4) };
-            panel.Children.Add(new TextBlock { Text = "这些快捷键由 Mod 的 i18n 与字节码定义自动发现；未修改项保持 Mod 默认值。", Foreground = new SolidColorBrush(Color.FromRgb(166, 185, 203)), TextWrapping = TextWrapping.Wrap, Margin = new Thickness(4, 0, 4, 10) });
-            foreach (var key in discovered) panel.Children.Add(BuildDiscoveredHotkeyRow(draft, key));
-            modConfigTabs.Items.Add(new TabItem { Header = $"自动发现的快捷键（{discovered.Count}）", Content = new ScrollViewer { Content = panel, VerticalScrollBarVisibility = ScrollBarVisibility.Auto } });
+            var group = new StackPanel();
+            foreach (var key in discovered) group.Children.Add(BuildDiscoveredHotkeyRow(draft, key));
+            AppendMergedGroup(hotkeyPanel, group, "其他快捷键");
         }
         var existingOptions = CollectExistingConfigNames(draft.Json);
         var discoveredOptions = draft.DiscoveredOptions
@@ -194,15 +213,32 @@ public partial class MainWindow
             .ToList();
         if (discoveredOptions.Count > 0)
         {
-            var panel = new StackPanel { Margin = new Thickness(4) };
-            panel.Children.Add(new TextBlock { Text = "这些功能由 Mod 的 i18n 与配置声明自动发现。保持“使用 Mod 默认”时不会向配置文件写入任何值。", Foreground = new SolidColorBrush(Color.FromRgb(166, 185, 203)), TextWrapping = TextWrapping.Wrap, Margin = new Thickness(4, 0, 4, 10) });
-            foreach (var option in discoveredOptions) panel.Children.Add(BuildDiscoveredBooleanRow(draft, option));
-            modConfigTabs.Items.Add(new TabItem { Header = $"自动发现的功能（{discoveredOptions.Count}）", Content = new ScrollViewer { Content = panel, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled } });
+            var group = new StackPanel();
+            foreach (var option in discoveredOptions) group.Children.Add(BuildDiscoveredBooleanRow(draft, option));
+            AppendMergedGroup(functionPanel, group, "其他功能");
         }
+        var tabs = new List<TabItem>
+        {
+            new() { Header = $"功能  {CountRows(functionPanel)}", Content = MakeModConfigScroll(functionPanel) },
+            new() { Header = $"快捷键  {CountRows(hotkeyPanel)}", Content = MakeModConfigScroll(hotkeyPanel) }
+        };
+        modConfigViewCache[draft] = (search, settings.ModConfigLanguage, tabs);
+        foreach (var tab in tabs) modConfigTabs.Items.Add(tab);
         if (modConfigTabs.Items.Count > 0) modConfigTabs.SelectedIndex = 0;
     }
 
-    private void RenderJsonObjectRows(ModConfigDraft draft, string category, JsonObject group, Panel panel, string search, string path)
+    private static ScrollViewer MakeModConfigScroll(Panel panel) => new() { Content = panel, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled, Padding = new Thickness(0, 10, 2, 0) };
+
+    private static void AppendMergedGroup(Panel destination, Panel source, string title)
+    {
+        if (source.Children.Count == 0) return;
+        destination.Children.Add(new TextBlock { Text = title, Foreground = new SolidColorBrush(Color.FromRgb(103, 190, 245)), FontSize = 14, FontWeight = FontWeights.SemiBold, Margin = new Thickness(4, 8, 4, 8) });
+        while (source.Children.Count > 0) { var child = source.Children[0]; source.Children.RemoveAt(0); destination.Children.Add(child); }
+    }
+
+    private static int CountRows(Panel panel) => panel.Children.OfType<Border>().Count();
+
+    private void RenderJsonObjectRows(ModConfigDraft draft, string category, JsonObject group, Panel functionPanel, Panel hotkeyPanel, string search, string path)
     {
         foreach (var option in group)
         {
@@ -210,18 +246,22 @@ public partial class MainWindow
             var valueText = option.Value?.ToJsonString(new JsonSerializerOptions { WriteIndented = false }) ?? "null";
             if (option.Value is JsonObject nested && !IsEditableConfigObject(nested))
             {
-                var nestedPanel = new StackPanel { Margin = new Thickness(10, 3, 0, 5) };
-                RenderJsonObjectRows(draft, category, nested, nestedPanel, search, fullPath);
-                if (nestedPanel.Children.Count == 0) continue;
-                panel.Children.Add(new TextBlock { Text = HumanizeConfigName(option.Key), ToolTip = fullPath, Foreground = new SolidColorBrush(Color.FromRgb(103, 190, 245)), FontWeight = FontWeights.SemiBold, Margin = new Thickness(4, 8, 4, 7) });
-                panel.Children.Add(nestedPanel); continue;
+                RenderJsonObjectRows(draft, category, nested, functionPanel, hotkeyPanel, search, fullPath);
+                continue;
             }
             if (search.Length > 0 && !(fullPath + valueText + TranslateConfigOption(draft, category, option.Key).Label).Contains(search, StringComparison.OrdinalIgnoreCase)) continue;
             JsonObject? pairedHotkey = null;
             if (category == "TweakToggles" && draft.Json?["TweakHotkeys"] is JsonObject tweakHotkeys) pairedHotkey = tweakHotkeys[option.Key] as JsonObject;
             if (category == "DisableToggles" && draft.Json?["DisableHotkeys"] is JsonObject disableHotkeys) pairedHotkey = disableHotkeys[option.Key] as JsonObject;
-            panel.Children.Add(BuildModOptionRow(draft, category, group, option.Key, option.Value, pairedHotkey));
+            var target = IsHotkeyEntry(category, option.Value, pairedHotkey) ? hotkeyPanel : functionPanel;
+            target.Children.Add(BuildModOptionRow(draft, category, group, option.Key, option.Value, pairedHotkey));
         }
+    }
+
+    private static bool IsHotkeyEntry(string category, JsonNode? value, JsonObject? pairedHotkey)
+    {
+        if (pairedHotkey != null || category.Contains("hotkey", StringComparison.OrdinalIgnoreCase) || category.Contains("keybind", StringComparison.OrdinalIgnoreCase) || category.Contains("shortcut", StringComparison.OrdinalIgnoreCase)) return true;
+        return TryResolveHotkey(value, out _, out _);
     }
 
     private static bool IsEditableConfigObject(JsonObject value)
@@ -390,6 +430,8 @@ public partial class MainWindow
     private List<string> DiscoverHotkeyNames(ModConfigDefinition definition)
     {
         var info = FindModTranslationInfo(definition); if (info == null || string.IsNullOrWhiteSpace(info.JarPath) || !File.Exists(info.JarPath)) return [];
+        var cacheKey = $"{info.JarPath}|{File.GetLastWriteTimeUtc(info.JarPath).Ticks}";
+        if (hotkeyDiscoveryCache.TryGetValue(cacheKey, out var cached)) return cached;
         var prefixes = definition.Id == "inventoryprofilesnext" ? new[] { "inventoryprofiles.config.name." } : new[] { $"{definition.Id}.config.name.", $"{definition.Id}.config.hotkey.name." };
         var candidates = info.EnglishTranslations.Keys.Concat(info.ChineseTranslations.Keys).Distinct(StringComparer.OrdinalIgnoreCase)
             .Select(key => prefixes.FirstOrDefault(prefix => key.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)) is { } prefix ? key[prefix.Length..] : null)
@@ -402,7 +444,8 @@ public partial class MainWindow
                 using var stream = entry.Open(); using var memory = new MemoryStream(); stream.CopyTo(memory); hotkeyClassText.Append(Encoding.Latin1.GetString(memory.ToArray()));
             }
             var classText = hotkeyClassText.ToString();
-            return candidates.Where(key => classText.Contains(key, StringComparison.OrdinalIgnoreCase) || classText.Contains(key.ToUpperInvariant(), StringComparison.Ordinal)).Order(StringComparer.OrdinalIgnoreCase).ToList();
+            var result = candidates.Where(key => classText.Contains(key, StringComparison.OrdinalIgnoreCase) || classText.Contains(key.ToUpperInvariant(), StringComparison.Ordinal)).Order(StringComparer.OrdinalIgnoreCase).ToList();
+            hotkeyDiscoveryCache[cacheKey] = result; return result;
         }
         catch { return []; }
     }
@@ -410,6 +453,9 @@ public partial class MainWindow
     private List<DiscoveredBooleanOption> DiscoverBooleanOptions(ModConfigDefinition definition, JsonObject? json)
     {
         var info = FindModTranslationInfo(definition); if (info == null || string.IsNullOrWhiteSpace(info.JarPath) || !File.Exists(info.JarPath)) return [];
+        var categorySignature = json == null ? "" : string.Join(',', CollectExistingConfigNames(json).Order(StringComparer.OrdinalIgnoreCase));
+        var cacheKey = $"{info.JarPath}|{File.GetLastWriteTimeUtc(info.JarPath).Ticks}|{categorySignature}";
+        if (booleanDiscoveryCache.TryGetValue(cacheKey, out var cached)) return cached;
         var existing = json == null ? new HashSet<string>(StringComparer.OrdinalIgnoreCase) : CollectExistingConfigNames(json);
         var hotkeys = DiscoverHotkeyNames(definition).ToHashSet(StringComparer.OrdinalIgnoreCase);
         var candidates = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -440,7 +486,8 @@ public partial class MainWindow
                     if (!result.ContainsKey(candidate) && (classText.Contains(candidate, StringComparison.OrdinalIgnoreCase) || classText.Contains(ToSnakeCase(candidate), StringComparison.OrdinalIgnoreCase)))
                         result[candidate] = new DiscoveredBooleanOption(category, candidate);
             }
-            return result.Values.OrderBy(option => option.Category, StringComparer.OrdinalIgnoreCase).ThenBy(option => option.Key, StringComparer.OrdinalIgnoreCase).ToList();
+            var discovered = result.Values.OrderBy(option => option.Category, StringComparer.OrdinalIgnoreCase).ThenBy(option => option.Key, StringComparer.OrdinalIgnoreCase).ToList();
+            booleanDiscoveryCache[cacheKey] = discovered; return discovered;
         }
         catch { return []; }
     }
@@ -486,18 +533,22 @@ public partial class MainWindow
 
     private string TranslateCategory(ModConfigDraft draft, string category)
     {
+        var cacheKey = $"{draft.Definition.Id}|{settings.ModConfigLanguage}|{category}";
+        if (modCategoryTranslationCache.TryGetValue(cacheKey, out var cached)) return cached;
         var fallback = HumanizeConfigName(category);
-        var info = FindModTranslationInfo(draft.Definition); if (info == null) return fallback;
+        var info = FindModTranslationInfo(draft.Definition); if (info == null) return modCategoryTranslationCache[cacheKey] = fallback;
         var tokens = new[] { category, ToSnakeCase(category) };
         var chinese = FindTranslation(info.ChineseTranslations, tokens, true, true);
         var english = FindTranslation(info.EnglishTranslations, tokens, true, true);
-        return FormatLocalizedLabel(chinese, english, fallback);
+        return modCategoryTranslationCache[cacheKey] = FormatLocalizedLabel(chinese, english, fallback);
     }
 
     private (string Label, string Tooltip) TranslateConfigOption(ModConfigDraft draft, string category, string key)
     {
+        var cacheKey = $"{draft.Definition.Id}|{settings.ModConfigLanguage}|{category}|{key}";
+        if (modOptionTranslationCache.TryGetValue(cacheKey, out var cached)) return cached;
         var fallback = HumanizeConfigName(key); var info = FindModTranslationInfo(draft.Definition);
-        if (info == null) return (fallback, key);
+        if (info == null) return modOptionTranslationCache[cacheKey] = (fallback, key);
         var candidates = BuildTranslationCandidates(draft.Definition.Id, category, key);
         var chinese = FindFirst(info.ChineseTranslations, candidates) ?? FindTranslation(info.ChineseTranslations, [key, ToSnakeCase(key)], false, false);
         var english = FindFirst(info.EnglishTranslations, candidates) ?? FindTranslation(info.EnglishTranslations, [key, ToSnakeCase(key)], false, false);
@@ -506,15 +557,17 @@ public partial class MainWindow
         var englishComment = FindFirst(info.EnglishTranslations, commentCandidates) ?? FindTranslation(info.EnglishTranslations, [key, ToSnakeCase(key)], false, true);
         var label = FormatLocalizedLabel(chinese, english, fallback);
         var description = FormatLocalizedDescription(chineseComment, englishComment);
-        return (label, string.IsNullOrWhiteSpace(description) ? key : $"{description}\n\n配置键：{key}");
+        return modOptionTranslationCache[cacheKey] = (label, string.IsNullOrWhiteSpace(description) ? key : $"{description}\n\n配置键：{key}");
     }
 
     private ModInfo? FindModTranslationInfo(ModConfigDefinition definition)
     {
+        if (modTranslationInfoCache.TryGetValue(definition.Id, out var cached)) return cached;
         foreach (var alias in definition.Aliases)
-            if (mods.TryGetValue(alias, out var exact)) return exact;
-        return mods.Values.FirstOrDefault(info => definition.Aliases.Any(alias => info.Id.Contains(alias, StringComparison.OrdinalIgnoreCase)) ||
+            if (mods.TryGetValue(alias, out var exact)) return modTranslationInfoCache[definition.Id] = exact;
+        var result = mods.Values.FirstOrDefault(info => definition.Aliases.Any(alias => info.Id.Contains(alias, StringComparison.OrdinalIgnoreCase)) ||
             info.ChineseTranslations.Keys.Concat(info.EnglishTranslations.Keys).Any(k => k.StartsWith(definition.Id + ".", StringComparison.OrdinalIgnoreCase) || (definition.Id == "inventoryprofilesnext" && k.StartsWith("inventoryprofiles.", StringComparison.OrdinalIgnoreCase))));
+        modTranslationInfoCache[definition.Id] = result; return result;
     }
 
     private static string[] BuildTranslationCandidates(string modId, string category, string key)
