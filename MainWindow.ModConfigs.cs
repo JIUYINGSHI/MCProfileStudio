@@ -3,6 +3,7 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Input;
 using System.Windows.Media;
 
 namespace McProfileStudio;
@@ -154,6 +155,8 @@ public partial class MainWindow
         var search = modConfigSearch?.Text?.Trim() ?? "";
         foreach (var category in draft.Json)
         {
+            if (category.Key == "TweakHotkeys" && draft.Json["TweakToggles"] is JsonObject) continue;
+            if (category.Key == "DisableHotkeys" && draft.Json["DisableToggles"] is JsonObject) continue;
             var panel = new StackPanel { Margin = new Thickness(4) };
             if (category.Value is JsonObject group)
             {
@@ -161,7 +164,10 @@ public partial class MainWindow
                 {
                     var valueText = option.Value?.ToJsonString(new JsonSerializerOptions { WriteIndented = false }) ?? "null";
                     if (search.Length > 0 && !(option.Key + valueText).Contains(search, StringComparison.OrdinalIgnoreCase)) continue;
-                    panel.Children.Add(BuildModOptionRow(draft, category.Key, group, option.Key, option.Value));
+                    JsonObject? pairedHotkey = null;
+                    if (category.Key == "TweakToggles" && draft.Json["TweakHotkeys"] is JsonObject tweakHotkeys) pairedHotkey = tweakHotkeys[option.Key] as JsonObject;
+                    if (category.Key == "DisableToggles" && draft.Json["DisableHotkeys"] is JsonObject disableHotkeys) pairedHotkey = disableHotkeys[option.Key] as JsonObject;
+                    panel.Children.Add(BuildModOptionRow(draft, category.Key, group, option.Key, option.Value, pairedHotkey));
                 }
             }
             else panel.Children.Add(BuildModOptionRow(draft, category.Key, draft.Json, category.Key, category.Value));
@@ -172,7 +178,7 @@ public partial class MainWindow
         if (modConfigTabs.Items.Count > 0) modConfigTabs.SelectedIndex = 0;
     }
 
-    private FrameworkElement BuildModOptionRow(ModConfigDraft draft, string category, JsonObject owner, string key, JsonNode? value)
+    private FrameworkElement BuildModOptionRow(ModConfigDraft draft, string category, JsonObject owner, string key, JsonNode? value, JsonObject? pairedHotkey = null)
     {
         var editOwner = owner; var editKey = key; var editableValue = value;
         if (value is JsonObject wrapper && wrapper.Count == 1)
@@ -185,7 +191,19 @@ public partial class MainWindow
         var translated = TranslateConfigOption(draft, category, key);
         var label = new TextBlock { Text = translated.Label, ToolTip = translated.Tooltip, Foreground = Brushes.White, VerticalAlignment = VerticalAlignment.Center, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 12, 0) }; grid.Children.Add(label);
         FrameworkElement editor;
-        if (editableValue is JsonValue scalar && scalar.TryGetValue<bool>(out var boolean))
+        if (value is JsonObject compound && compound["enabled"] is JsonValue enabledValue && enabledValue.TryGetValue<bool>(out var compoundEnabled) && compound["hotkey"] is JsonObject compoundHotkey)
+        {
+            editor = BuildToggleHotkeyEditor(compound, "enabled", compoundEnabled, compoundHotkey, "hotkey");
+        }
+        else if (pairedHotkey != null && editableValue is JsonValue pairedScalar && pairedScalar.TryGetValue<bool>(out var pairedEnabled))
+        {
+            editor = BuildToggleHotkeyEditor(editOwner, editKey, pairedEnabled, pairedHotkey, "hotkey");
+        }
+        else if (editKey == "keys")
+        {
+            editor = BuildHotkeyEditor(editOwner, editKey);
+        }
+        else if (editableValue is JsonValue scalar && scalar.TryGetValue<bool>(out var boolean))
         {
             var toggle = new CheckBox { Content = boolean ? "true" : "false", IsChecked = boolean, Foreground = new SolidColorBrush(boolean ? Color.FromRgb(88, 220, 120) : Color.FromRgb(255, 105, 115)), HorizontalAlignment = HorizontalAlignment.Stretch };
             toggle.Checked += (_, _) => { editOwner[editKey] = true; toggle.Content = "true"; toggle.Foreground = new SolidColorBrush(Color.FromRgb(88, 220, 120)); MarkModConfigDraftChanged(); };
@@ -198,6 +216,50 @@ public partial class MainWindow
         }
         Grid.SetColumn(editor, 1); grid.Children.Add(editor); border.Child = grid; return border;
     }
+
+    private FrameworkElement BuildToggleHotkeyEditor(JsonObject toggleOwner, string toggleKey, bool enabled, JsonObject hotkeyOwner, string hotkeyKey)
+    {
+        var grid = new Grid(); grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(116) }); grid.ColumnDefinitions.Add(new ColumnDefinition());
+        var toggle = new Button { Content = enabled ? "true" : "false", Foreground = new SolidColorBrush(enabled ? Color.FromRgb(88, 220, 120) : Color.FromRgb(255, 105, 115)), Background = new SolidColorBrush(Color.FromRgb(126, 126, 126)), Margin = new Thickness(0, 0, 8, 0) };
+        toggle.Click += (_, _) => { var next = !(toggleOwner[toggleKey]?.GetValue<bool>() ?? false); toggleOwner[toggleKey] = next; toggle.Content = next ? "true" : "false"; toggle.Foreground = new SolidColorBrush(next ? Color.FromRgb(88, 220, 120) : Color.FromRgb(255, 105, 115)); MarkModConfigDraftChanged(); };
+        grid.Children.Add(toggle);
+        var actualHotkeyOwner = hotkeyOwner[hotkeyKey] as JsonObject ?? hotkeyOwner;
+        var hotkey = BuildHotkeyEditor(actualHotkeyOwner, "keys"); Grid.SetColumn(hotkey, 1); grid.Children.Add(hotkey); return grid;
+    }
+
+    private FrameworkElement BuildHotkeyEditor(JsonObject owner, string key)
+    {
+        var grid = new Grid(); grid.ColumnDefinitions.Add(new ColumnDefinition()); grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(44) });
+        var button = new Button { Content = HotkeyDisplay(owner[key]?.GetValue<string>()), Background = new SolidColorBrush(Color.FromRgb(126, 126, 126)), Foreground = Brushes.White, HorizontalContentAlignment = HorizontalAlignment.Center };
+        var capturing = false;
+        button.Click += (_, _) => { capturing = true; button.Content = "请按下组合键…"; button.Focus(); Keyboard.Focus(button); };
+        button.PreviewKeyDown += (_, e) =>
+        {
+            if (!capturing) return; e.Handled = true; var pressed = e.Key == Key.System ? e.SystemKey : e.Key;
+            if (pressed is Key.LeftCtrl or Key.RightCtrl or Key.LeftShift or Key.RightShift or Key.LeftAlt or Key.RightAlt) { button.Content = "继续按主键…"; return; }
+            if (pressed == Key.Escape) { capturing = false; button.Content = HotkeyDisplay(owner[key]?.GetValue<string>()); return; }
+            var parts = new List<string>();
+            if ((Keyboard.Modifiers & ModifierKeys.Control) != 0) parts.Add("LEFT_CONTROL");
+            if ((Keyboard.Modifiers & ModifierKeys.Shift) != 0) parts.Add("LEFT_SHIFT");
+            if ((Keyboard.Modifiers & ModifierKeys.Alt) != 0) parts.Add("LEFT_ALT");
+            var main = ToMaliKey(pressed); if (!parts.Contains(main, StringComparer.OrdinalIgnoreCase)) parts.Add(main);
+            var binding = string.Join(',', parts); owner[key] = binding; button.Content = HotkeyDisplay(binding); capturing = false; MarkModConfigDraftChanged();
+        };
+        grid.Children.Add(button);
+        var clear = new Button { Content = "×", ToolTip = "清除热键", Padding = new Thickness(0), Margin = new Thickness(6, 0, 0, 0), Background = new SolidColorBrush(Color.FromRgb(56, 71, 86)) };
+        clear.Click += (_, _) => { owner[key] = ""; button.Content = "NONE"; capturing = false; MarkModConfigDraftChanged(); }; Grid.SetColumn(clear, 1); grid.Children.Add(clear); return grid;
+    }
+
+    private static string HotkeyDisplay(string? value) => string.IsNullOrWhiteSpace(value) ? "NONE" : value.Replace("LEFT_CONTROL", "Ctrl").Replace("RIGHT_CONTROL", "RCtrl").Replace("LEFT_SHIFT", "Shift").Replace("RIGHT_SHIFT", "RShift").Replace("LEFT_ALT", "Alt").Replace("RIGHT_ALT", "RAlt").Replace("KP_", "Num ").Replace(',', '+');
+
+    private static string ToMaliKey(Key key) => key switch
+    {
+        Key.LeftCtrl => "LEFT_CONTROL", Key.RightCtrl => "RIGHT_CONTROL", Key.LeftShift => "LEFT_SHIFT", Key.RightShift => "RIGHT_SHIFT", Key.LeftAlt => "LEFT_ALT", Key.RightAlt => "RIGHT_ALT",
+        >= Key.NumPad0 and <= Key.NumPad9 => "KP_" + ((int)key - (int)Key.NumPad0), Key.Add => "KP_ADD", Key.Subtract => "KP_SUBTRACT", Key.Multiply => "KP_MULTIPLY", Key.Divide => "KP_DIVIDE", Key.Decimal => "KP_DECIMAL",
+        Key.PageUp => "PAGE_UP", Key.PageDown => "PAGE_DOWN", Key.CapsLock => "CAPS_LOCK", Key.NumLock => "NUM_LOCK", Key.Scroll => "SCROLL_LOCK", Key.PrintScreen => "PRINT_SCREEN",
+        Key.Oem1 => "SEMICOLON", Key.Oem2 => "SLASH", Key.Oem3 => "GRAVE_ACCENT", Key.Oem4 => "LEFT_BRACKET", Key.Oem5 => "BACKSLASH", Key.Oem6 => "RIGHT_BRACKET", Key.Oem7 => "APOSTROPHE", Key.OemComma => "COMMA", Key.OemPeriod => "PERIOD", Key.OemMinus => "MINUS", Key.OemPlus => "EQUAL",
+        Key.Return => "ENTER", Key.Back => "BACKSPACE", Key.Space => "SPACE", Key.Escape => "ESCAPE", _ => key.ToString().ToUpperInvariant()
+    };
 
     private static string ScalarDisplay(JsonNode? value)
     {
