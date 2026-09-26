@@ -84,7 +84,7 @@ public partial class MainWindow
         var left = MakeModConfigCard();
         var leftStack = new Grid(); leftStack.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto }); leftStack.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto }); leftStack.RowDefinitions.Add(new RowDefinition());
         var leftTitle = new TextBlock { Text = "检测到的独立配置", Foreground = Brushes.White, FontSize = 18, FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 0, 0, 8) }; Grid.SetRow(leftTitle, 0); leftStack.Children.Add(leftTitle);
-        var leftHint = new TextBlock { Text = "只显示当前实例已安装且有配置文件的 Mod", Foreground = new SolidColorBrush(Color.FromRgb(166, 185, 203)), TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 0, 12) }; Grid.SetRow(leftHint, 1); leftStack.Children.Add(leftHint);
+        var leftHint = new TextBlock { Text = "只显示当前实例已安装且能够在此页修改参数的 Mod", Foreground = new SolidColorBrush(Color.FromRgb(166, 185, 203)), TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 0, 12) }; Grid.SetRow(leftHint, 1); leftStack.Children.Add(leftHint);
         modConfigModList = new ListBox { Background = Brushes.Transparent, BorderThickness = new Thickness(0), DisplayMemberPath = "Definition.DisplayName" };
         modConfigModList.SelectionChanged += ModConfigModList_SelectionChanged;
         Grid.SetRow(modConfigModList, 2); leftStack.Children.Add(modConfigModList); left.Child = leftStack; Grid.SetColumn(left, 0); modConfigsPage.Children.Add(left);
@@ -161,6 +161,7 @@ public partial class MainWindow
                 var primary = Directory.Exists(path) ? Path.Combine(path, definition.PrimaryJson) : path;
                 if (!File.Exists(primary)) continue;
                 JsonObject? json = null; try { json = JsonNode.Parse(File.ReadAllText(primary)) as JsonObject; } catch { }
+                if (json == null) continue;
                 var draft = new ModConfigDraft { Definition = definition, SourcePath = path, Json = json, IsDetected = true };
                 draft.ConfigFiles.AddRange(Directory.Exists(path) ? Directory.EnumerateFiles(path, "*", SearchOption.AllDirectories).Where(IsSupportedConfigFile) : [path]);
                 foreach (var hotkey in DiscoverHotkeyNames(definition)) draft.DiscoveredHotkeys.Add(hotkey);
@@ -183,20 +184,20 @@ public partial class MainWindow
         {
             var matches = files.Select(file => (File: file, Score: ScoreConfigPath(configRoot, file, mod))).Where(item => item.Score > 0).OrderByDescending(item => item.Score).ThenBy(item => item.File.Length).ToList();
             if (matches.Count == 0) continue;
-            var bestScore = matches[0].Score; var selected = matches.Where(item => item.Score >= Math.Max(55, bestScore - 15)).Select(item => item.File).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
-            var primary = selected.FirstOrDefault(file => Path.GetExtension(file).Equals(".json", StringComparison.OrdinalIgnoreCase) && TryReadJsonObject(file, out _)) ?? selected[0];
-            JsonObject? json = null; if (Path.GetExtension(primary).Equals(".json", StringComparison.OrdinalIgnoreCase)) TryReadJsonObject(primary, out json);
+            var editable = matches.Where(item => Path.GetExtension(item.File).Equals(".json", StringComparison.OrdinalIgnoreCase) && TryReadJsonObject(item.File, out _)).ToList();
+            if (editable.Count == 0) continue;
+            var primary = editable[0].File; var bestScore = editable[0].Score;
+            var selected = matches.Where(item => item.Score >= Math.Max(55, bestScore - 15)).Select(item => item.File).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+            if (!selected.Contains(primary, StringComparer.OrdinalIgnoreCase)) selected.Insert(0, primary);
+            TryReadJsonObject(primary, out var json);
             var commonDirectory = selected.Select(Path.GetDirectoryName).Distinct(StringComparer.OrdinalIgnoreCase).Count() == 1 && !Path.GetDirectoryName(primary)!.Equals(configRoot, StringComparison.OrdinalIgnoreCase) ? Path.GetDirectoryName(primary)! : primary;
             var relative = Path.GetRelativePath(instance, commonDirectory).Replace('\\', '/');
             var primaryName = Directory.Exists(commonDirectory) ? Path.GetFileName(primary) : "";
             var definition = new ModConfigDefinition(mod.Id, mod.ChineseName, mod.EnglishName, relative, primaryName, [mod.Id]);
-            var draft = new ModConfigDraft { Definition = definition, SourcePath = commonDirectory, Json = json, IsDetected = true, IsReadOnlyFormat = json == null, IsAutoDiscovered = true };
+            var draft = new ModConfigDraft { Definition = definition, SourcePath = commonDirectory, Json = json, IsDetected = true, IsAutoDiscovered = true };
             draft.ConfigFiles.AddRange(selected);
-            if (json != null)
-            {
-                foreach (var hotkey in DiscoverHotkeyNames(definition)) draft.DiscoveredHotkeys.Add(hotkey);
-                foreach (var option in DiscoverBooleanOptions(definition, json)) draft.DiscoveredOptions.Add(option);
-            }
+            foreach (var hotkey in DiscoverHotkeyNames(definition)) draft.DiscoveredHotkeys.Add(hotkey);
+            foreach (var option in DiscoverBooleanOptions(definition, json)) draft.DiscoveredOptions.Add(option);
             yield return draft;
         }
     }
