@@ -15,6 +15,7 @@
     <Resource Include="Assets\MapleMono.ttf" />
     <Resource Include="Assets\app.ico" />
     <Resource Include="Assets\mc-profile-icon.png" />
+    <EmbeddedResource Include="Assets\WikiEntries.txt" />
   </ItemGroup>
 
 </Project>

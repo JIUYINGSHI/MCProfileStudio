@@ -8,6 +8,7 @@
 - 从 `pack.mcmeta` 与字体 provider 还原资源包彩色说明及位图字符。
 - 管理共享光影包，并从 Modrinth 项目 Gallery 自动缓存可靠匹配的效果图。
 - 扫描 Fabric、Quilt、Forge 和 NeoForge Mod 元数据及中英文语言文件。
+- Mod 名称优先读取自身 `zh_cn.json`，缺失时按 PCL 同类方式使用离线 MC 百科 slug 译名库匹配，并保留英文原名与 Mod ID 便于核对。
 - 点击实体键帽可在左侧筛选该键的全部功能；冲突检测支持逐项手动排除，适配不同 UI 场景复用同一按键的 Mod。
 - 支持组合键和多种主流键盘布局。
 - 键位既可仅应用于当前实例，也可保存为只对对应 Mod 生效的专属配置。
@@ -44,3 +45,5 @@ dotnet publish .\McProfileStudio.csproj -c Release -r win-x64 --self-contained t
 ## 说明
 
 `options.txt` 不记录按键所属 Mod。应用优先通过 Mod JAR 中的 `en_us.json`、`zh_cn.json` 和元数据确认归属，无法可靠匹配的项目会归入“未识别”分组。
+
+Mod 中文译名数据库来自 PCL2 公开源码中的 `WikiEntries.txt`，数据源为 MC 百科；本项目仅复用了离线条目数据与 slug 匹配思路，和 PCL2、MC 百科均无隶属关系。详见 `THIRD_PARTY_NOTICES.md`。

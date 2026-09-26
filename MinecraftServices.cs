@@ -35,7 +35,7 @@ public static class MinecraftConfig
                 if (string.IsNullOrWhiteSpace(name)) name = id.Replace('_', ' ');
                 var info = new ModInfo { Id = id, EnglishName = name, JarPath = jar };
                 LoadLang(zip, info, "en_us", info.EnglishTranslations); LoadLang(zip, info, "zh_cn", info.ChineseTranslations);
-                info.ChineseName = FindModName(info.ChineseTranslations, id);
+                info.ChineseName = ResolveChineseModName(info);
                 result[id] = info; foreach (var dep in dependencies) if (!IsLoader(dep)) dependencyIds.Add(dep);
             }
             catch { }
@@ -54,6 +54,14 @@ public static class MinecraftConfig
     {
         foreach (var key in new[] { $"modmenu.nameTranslation.{id}", $"mod.{id}.name", $"{id}.name" }) if (lang.TryGetValue(key, out var value)) return value;
         return "";
+    }
+
+    private static string ResolveChineseModName(ModInfo info)
+    {
+        var bundled = FindModName(info.ChineseTranslations, info.Id);
+        if (!string.IsNullOrWhiteSpace(bundled)) return bundled;
+        if (ModNameLocalization.ContainsChinese(info.EnglishName)) return info.EnglishName;
+        return ModNameLocalization.Find(info.Id, info.EnglishName, info.JarPath);
     }
 
     public static ModInfo MatchKeyToMod(string optionKey, Dictionary<string, ModInfo> mods)
