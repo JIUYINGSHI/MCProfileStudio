@@ -3,6 +3,7 @@ using System.IO.Compression;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using System.Text.RegularExpressions;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
@@ -34,6 +35,10 @@ public partial class MainWindow
     }
 
     private sealed record DiscoveredBooleanOption(string Category, string Key);
+    private sealed record LocalizedConfigChoice(string Value, string Label)
+    {
+        public override string ToString() => Label;
+    }
 
     private static readonly ModConfigDefinition[] SupportedModConfigs =
     [
@@ -49,6 +54,34 @@ public partial class MainWindow
     private static readonly Dictionary<string, string> ConfigCategoryNames = new(StringComparer.OrdinalIgnoreCase)
     {
         ["Generic"] = "通用", ["GenericHotkeys"] = "通用快捷键", ["Fixes"] = "修复项", ["Lists"] = "列表", ["TweakToggles"] = "功能开关", ["TweakHotkeys"] = "功能快捷键", ["DisableToggles"] = "禁用项", ["DisableHotkeys"] = "禁用快捷键", ["Internal"] = "内部设置", ["Features"] = "功能", ["ModSettings"] = "Mod 设置", ["GuiSettings"] = "界面设置", ["LockedSlotsSettings"] = "锁定槽位", ["AutoRefillSettings"] = "自动补货", ["EditProfiles"] = "配置档案", ["Visuals"] = "视觉", ["Hotkeys"] = "快捷键"
+    };
+    private static readonly Dictionary<string, string> GenericConfigNames = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["tooltipColors"] = "提示框颜色", ["showInGameNames"] = "显示游戏内名称", ["hideDefaultBlockLoot"] = "隐藏默认方块掉落物",
+        ["showUnboundedGlobalLootModifiers"] = "显示未绑定的全局战利品修改器", ["logMoreStatistics"] = "记录更多统计信息", ["configVersion"] = "配置版本",
+        ["maxGuiScale"] = "最大界面缩放", ["text"] = "文本", ["value"] = "数值", ["error"] = "错误", ["branch"] = "分支"
+    };
+    private static readonly Dictionary<string, string> GenericConfigTerms = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["general"]="通用", ["client"]="客户端", ["server"]="服务端", ["common"]="公共", ["advanced"]="高级", ["internal"]="内部",
+        ["show"]="显示", ["hide"]="隐藏", ["enable"]="启用", ["enabled"]="启用", ["disable"]="禁用", ["disabled"]="禁用",
+        ["default"]="默认", ["global"]="全局", ["local"]="本地", ["more"]="更多", ["in"]="在", ["game"]="游戏内",
+        ["name"]="名称", ["names"]="名称", ["tooltip"]="提示框", ["tooltips"]="提示框", ["color"]="颜色", ["colors"]="颜色",
+        ["text"]="文本", ["value"]="数值", ["error"]="错误", ["branch"]="分支", ["version"]="版本", ["config"]="配置",
+        ["block"]="方块", ["item"]="物品", ["entity"]="实体", ["loot"]="掉落物", ["modifier"]="修改器", ["modifiers"]="修改器",
+        ["unbounded"]="未绑定", ["log"]="记录", ["statistics"]="统计信息", ["rendering"]="渲染", ["performance"]="性能", ["debug"]="调试",
+        ["blacklist"]="黑名单", ["whitelist"]="白名单", ["range"]="范围", ["distance"]="距离", ["speed"]="速度", ["limit"]="限制",
+        ["count"]="数量", ["size"]="大小", ["width"]="宽度", ["height"]="高度", ["opacity"]="透明度", ["scale"]="缩放",
+        ["mode"]="模式", ["interval"]="间隔", ["delay"]="延迟", ["duration"]="持续时间", ["chance"]="概率", ["radius"]="半径",
+        ["volume"]="音量", ["sound"]="声音", ["particle"]="粒子", ["particles"]="粒子", ["inventory"]="物品栏", ["search"]="搜索",
+        ["display"]="显示", ["filter"]="过滤器", ["filters"]="过滤器", ["category"]="分类", ["categories"]="分类", ["gui"]="界面",
+        ["max"]="最大", ["min"]="最小"
+    };
+    private static readonly Dictionary<string, string> MinecraftColorNames = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["black"]="黑色", ["dark_blue"]="深蓝色", ["dark_green"]="深绿色", ["dark_aqua"]="深青色", ["dark_red"]="深红色",
+        ["dark_purple"]="深紫色", ["gold"]="金色", ["gray"]="灰色", ["dark_gray"]="深灰色", ["blue"]="蓝色",
+        ["green"]="绿色", ["aqua"]="青色", ["red"]="红色", ["light_purple"]="亮紫色", ["yellow"]="黄色", ["white"]="白色"
     };
 
     private Grid? modConfigsPage;
@@ -412,6 +445,13 @@ public partial class MainWindow
             toggle.Checked += (_, _) => { editOwner[editKey] = true; toggle.Content = "true"; toggle.Foreground = new SolidColorBrush(Color.FromRgb(88, 220, 120)); MarkModConfigDraftChanged(); };
             toggle.Unchecked += (_, _) => { editOwner[editKey] = false; toggle.Content = "false"; toggle.Foreground = new SolidColorBrush(Color.FromRgb(255, 105, 115)); MarkModConfigDraftChanged(); }; editor = toggle;
         }
+        else if (editableValue is JsonValue textValue && textValue.TryGetValue<string>(out var stringValue) && MinecraftColorNames.ContainsKey(stringValue))
+        {
+            var choices = MinecraftColorNames.Select(item => new LocalizedConfigChoice(item.Key, item.Value)).ToList();
+            var combo = new ComboBox { ItemsSource = choices, SelectedItem = choices.First(item => item.Value.Equals(stringValue, StringComparison.OrdinalIgnoreCase)) };
+            combo.SelectionChanged += (_, _) => { if (combo.SelectedItem is LocalizedConfigChoice choice) { editOwner[editKey] = choice.Value; MarkModConfigDraftChanged(); } };
+            editor = combo;
+        }
         else
         {
             var text = new TextBox { Text = ScalarDisplay(editableValue), ToolTip = editKey == "keys" ? "填写 MaLiLib 快捷键，例如 X,C；空白表示未绑定。" : "复杂值可直接填写 JSON。" };
@@ -612,11 +652,11 @@ public partial class MainWindow
         var cacheKey = $"{draft.Definition.Id}|{settings.ModConfigLanguage}|{category}";
         if (modCategoryTranslationCache.TryGetValue(cacheKey, out var cached)) return cached;
         var fallback = HumanizeConfigName(category);
-        var info = FindModTranslationInfo(draft.Definition); if (info == null) return modCategoryTranslationCache[cacheKey] = fallback;
+        var info = FindModTranslationInfo(draft.Definition);
         var tokens = new[] { category, ToSnakeCase(category) };
-        var chinese = FindTranslation(info.ChineseTranslations, tokens, true, true);
-        var english = FindTranslation(info.EnglishTranslations, tokens, true, true);
-        return modCategoryTranslationCache[cacheKey] = FormatLocalizedLabel(chinese, english, fallback);
+        var chinese = info == null ? null : FindTranslation(info.ChineseTranslations, tokens, true, true);
+        var english = info == null ? null : FindTranslation(info.EnglishTranslations, tokens, true, true);
+        return modCategoryTranslationCache[cacheKey] = FormatLocalizedLabel(chinese ?? TranslateGenericConfigName(category), english ?? fallback, fallback);
     }
 
     private (string Label, string Tooltip) TranslateConfigOption(ModConfigDraft draft, string category, string key)
@@ -624,14 +664,13 @@ public partial class MainWindow
         var cacheKey = $"{draft.Definition.Id}|{settings.ModConfigLanguage}|{category}|{key}";
         if (modOptionTranslationCache.TryGetValue(cacheKey, out var cached)) return cached;
         var fallback = HumanizeConfigName(key); var info = FindModTranslationInfo(draft.Definition);
-        if (info == null) return modOptionTranslationCache[cacheKey] = (fallback, key);
         var candidates = BuildTranslationCandidates(draft.Definition.Id, category, key);
-        var chinese = FindFirst(info.ChineseTranslations, candidates) ?? FindTranslation(info.ChineseTranslations, [key, ToSnakeCase(key)], false, false);
-        var english = FindFirst(info.EnglishTranslations, candidates) ?? FindTranslation(info.EnglishTranslations, [key, ToSnakeCase(key)], false, false);
+        var chinese = info == null ? null : FindFirst(info.ChineseTranslations, candidates) ?? FindTranslation(info.ChineseTranslations, [key, ToSnakeCase(key)], false, false);
+        var english = info == null ? null : FindFirst(info.EnglishTranslations, candidates) ?? FindTranslation(info.EnglishTranslations, [key, ToSnakeCase(key)], false, false);
         var commentCandidates = candidates.Select(x => x.Replace(".name.", ".comment.").Replace(".prettyName.", ".comment.").Replace("config.name.", "config.description.")).ToArray();
-        var chineseComment = FindFirst(info.ChineseTranslations, commentCandidates) ?? FindTranslation(info.ChineseTranslations, [key, ToSnakeCase(key)], false, true);
-        var englishComment = FindFirst(info.EnglishTranslations, commentCandidates) ?? FindTranslation(info.EnglishTranslations, [key, ToSnakeCase(key)], false, true);
-        var label = FormatLocalizedLabel(chinese, english, fallback);
+        var chineseComment = info == null ? null : FindFirst(info.ChineseTranslations, commentCandidates) ?? FindTranslation(info.ChineseTranslations, [key, ToSnakeCase(key)], false, true);
+        var englishComment = info == null ? null : FindFirst(info.EnglishTranslations, commentCandidates) ?? FindTranslation(info.EnglishTranslations, [key, ToSnakeCase(key)], false, true);
+        var label = FormatLocalizedLabel(chinese ?? TranslateGenericConfigName(key), english ?? fallback, fallback);
         var description = FormatLocalizedDescription(chineseComment, englishComment);
         return modOptionTranslationCache[cacheKey] = (label, string.IsNullOrWhiteSpace(description) ? key : $"{description}\n\n配置键：{key}");
     }
@@ -681,6 +720,15 @@ public partial class MainWindow
             var match = matches.FirstOrDefault(); if (!string.IsNullOrWhiteSpace(match.Value)) return CleanMinecraftFormatting(match.Value);
         }
         return null;
+    }
+
+    private static string? TranslateGenericConfigName(string value)
+    {
+        if (GenericConfigNames.TryGetValue(value, out var exact)) return exact;
+        var words = Regex.Matches(HumanizeConfigName(value), @"[A-Za-z0-9]+")
+            .Select(match => match.Value).ToList();
+        if (words.Count == 0 || !words.Any(word => GenericConfigTerms.ContainsKey(word))) return null;
+        return string.Join("", words.Select(word => GenericConfigTerms.TryGetValue(word, out var translated) ? translated : word));
     }
 
     private string FormatLocalizedLabel(string? chinese, string? english, string fallback)
