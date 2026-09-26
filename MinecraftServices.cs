@@ -102,8 +102,25 @@ public static class MinecraftConfig
     public static Dictionary<string, string> ReadOptions(string instance)
     {
         var file = Path.Combine(instance, "options.txt");
+        return ReadOptionsFile(file);
+    }
+    public static Dictionary<string, string> ReadOptionsFile(string file)
+    {
         if (!File.Exists(file)) return [];
         return File.ReadLines(file).Select(ParseLine).Where(x => x.HasValue).Select(x => x.GetValueOrDefault()).ToDictionary(x => x.Key, x => x.Value, StringComparer.Ordinal);
+    }
+    public static List<string> ParseResourcePacks(string value)
+    {
+        try { return (JsonSerializer.Deserialize<List<string>>(value) ?? []).Where(x => x.StartsWith("file/", StringComparison.OrdinalIgnoreCase)).Select(x => x[5..]).ToList(); }
+        catch { return Regex.Matches(value, "\\\"file/((?:\\\\.|[^\\\"])*)\\\"").Select(m => Regex.Unescape(m.Groups[1].Value)).ToList(); }
+    }
+    public static string ReadShaderSelection(string directory)
+    {
+        foreach (var pair in new[] { (Path.Combine(directory, "config", "iris.properties"), "shaderPack"), (Path.Combine(directory, "optionsof.txt"), "ofShaderPack") })
+        {
+            if (!File.Exists(pair.Item1)) continue; var line = File.ReadLines(pair.Item1).FirstOrDefault(x => x.StartsWith(pair.Item2 + "=", StringComparison.Ordinal)); if (line != null) return line[(line.IndexOf('=') + 1)..].Trim();
+        }
+        return "";
     }
     private static KeyValuePair<string, string>? ParseLine(string line) { var i = line.IndexOf(':'); return i <= 0 ? null : new(line[..i], line[(i + 1)..]); }
 

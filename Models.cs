@@ -51,6 +51,8 @@ public class AppSettings
     public string KeyboardLayout { get; set; } = "108 键全尺寸";
     public Dictionary<string, string> ShaderPreviews { get; set; } = new(StringComparer.OrdinalIgnoreCase);
     public Dictionary<string, Dictionary<string, string>> ModKeyProfiles { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+    public string ActiveKeyProfile { get; set; } = "默认键位";
+    public Dictionary<string, KeyProfile> KeyProfiles { get; set; } = new(StringComparer.OrdinalIgnoreCase);
     public string ActivePackProfile { get; set; } = "默认配置";
     public Dictionary<string, PackProfile> PackProfiles { get; set; } = new(StringComparer.OrdinalIgnoreCase);
 }
@@ -59,6 +61,11 @@ public class PackProfile
 {
     public List<string> PackOrder { get; set; } = [];
     public List<string> EnabledPacks { get; set; } = [];
+}
+
+public class KeyProfile
+{
+    public Dictionary<string, Dictionary<string, string>> ModBindings { get; set; } = new(StringComparer.OrdinalIgnoreCase);
 }
 
 public class ModInfo
