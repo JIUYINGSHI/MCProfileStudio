@@ -161,11 +161,11 @@ public partial class MainWindow
         var right = MakeModConfigCard();
         var actions = new StackPanel();
         actions.Children.Add(new TextBlock { Text = "Mod 配置方案", Foreground = Brushes.White, FontSize = 18, FontWeight = FontWeights.SemiBold });
-        actions.Children.Add(new TextBlock { Text = "保存后才会成为可复用模板；应用时只覆盖当前实例存在的 Mod。", Foreground = new SolidColorBrush(Color.FromRgb(166, 185, 203)), TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 7, 0, 12) });
+        actions.Children.Add(new TextBlock { Text = "每套方案保存所有 Mod 的当前草稿；切换方案会还原对应草稿。应用时可选择当前 Mod 或全部 Mod。", Foreground = new SolidColorBrush(Color.FromRgb(166, 185, 203)), TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 7, 0, 12) });
         modConfigProfileCombo = new ComboBox(); modConfigProfileCombo.SelectionChanged += ModConfigProfile_SelectionChanged; actions.Children.Add(modConfigProfileCombo);
         actions.Children.Add(MakeActionButton("新建配置", AddModConfigProfile_Click, new Thickness(0, 10, 0, 0)));
         actions.Children.Add(MakeActionButton("重命名", RenameModConfigProfile_Click, new Thickness(0, 7, 0, 0), false));
-        actions.Children.Add(MakeActionButton("保存当前草稿", SaveModConfigProfile_Click, new Thickness(0, 7, 0, 0)));
+        actions.Children.Add(MakeActionButton("保存全部 Mod 草稿", SaveModConfigProfile_Click, new Thickness(0, 7, 0, 0)));
         actions.Children.Add(new TextBlock { Text = "选项显示语言", Foreground = new SolidColorBrush(Color.FromRgb(166, 185, 203)), Margin = new Thickness(0, 14, 0, 6) });
         modConfigLanguageCombo = new ComboBox { ItemsSource = new[] { "中文优先", "中英双语", "English" }, SelectedItem = settings.ModConfigLanguage };
         modConfigLanguageCombo.SelectionChanged += (_, _) => { if (modConfigLanguageCombo.SelectedItem is string language) { settings.ModConfigLanguage = language; SettingsStore.Save(settings); RenderSelectedModConfigSafely(); } }; actions.Children.Add(modConfigLanguageCombo);
@@ -208,6 +208,7 @@ public partial class MainWindow
     private void RefreshModConfigPage()
     {
         if (modConfigModList == null) return;
+        var selectedModId = (modConfigModList.SelectedItem as ModConfigDraft)?.Definition.Id;
         modConfigDrafts.Clear();
         modConfigViewCache.Clear();
         modTranslationInfoCache.Clear(); modCategoryTranslationCache.Clear(); modOptionTranslationCache.Clear();
@@ -231,8 +232,14 @@ public partial class MainWindow
             foreach (var dynamicDraft in DiscoverAdditionalModConfigs(coveredIds)) modConfigDrafts.Add(dynamicDraft);
         }
         modConfigDrafts.Sort((left, right) => string.Compare(left.Definition.DisplayName, right.Definition.DisplayName, StringComparison.CurrentCultureIgnoreCase));
-        modConfigModList.ItemsSource = null; modConfigModList.ItemsSource = modConfigDrafts; if (modConfigDrafts.Count > 0) modConfigModList.SelectedIndex = 0;
+        modConfigModList.ItemsSource = null; modConfigModList.ItemsSource = modConfigDrafts;
+        if (modConfigDrafts.Count > 0)
+        {
+            var selectedIndex = string.IsNullOrWhiteSpace(selectedModId) ? -1 : modConfigDrafts.FindIndex(draft => draft.Definition.Id.Equals(selectedModId, StringComparison.OrdinalIgnoreCase));
+            modConfigModList.SelectedIndex = selectedIndex >= 0 ? selectedIndex : 0;
+        }
         if (modConfigHint != null) modConfigHint.Text = modConfigDrafts.Count == 0 ? "请先导入包含这些 Mod 的游戏实例。" : $"已检测到 {modConfigDrafts.Count} 个可管理的独立 Mod 配置。";
+        LoadModConfigProfileDraft();
     }
 
     private IEnumerable<ModConfigDraft> DiscoverAdditionalModConfigs(HashSet<string> coveredIds)
@@ -869,12 +876,12 @@ public partial class MainWindow
 
     private void ModConfigProfile_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
-        if (switchingModConfigProfile || modConfigProfileCombo?.SelectedItem is not string name) return; settings.ActiveModConfigProfile = name; SettingsStore.Save(settings); LoadModConfigProfileDraft();
+        if (switchingModConfigProfile || modConfigProfileCombo?.SelectedItem is not string name) return; settings.ActiveModConfigProfile = name; SettingsStore.Save(settings); RefreshModConfigPage();
     }
 
     private void AddModConfigProfile_Click(object sender, RoutedEventArgs e)
     {
-        var name = PromptForProfileName("新建 Mod 配置", "新的 Mod 配置"); if (string.IsNullOrWhiteSpace(name)) return; settings.ActiveModConfigProfile = name; RefreshModConfigProfiles(); StatusText.Text = "新 Mod 配置尚未保存";
+        var name = PromptForProfileName("新建 Mod 配置", "新的 Mod 配置"); if (string.IsNullOrWhiteSpace(name)) return; settings.ActiveModConfigProfile = name; SettingsStore.Save(settings); RefreshModConfigProfiles(); RefreshModConfigPage(); StatusText.Text = "新 Mod 配置尚未保存";
     }
 
     private void RenameModConfigProfile_Click(object sender, RoutedEventArgs e)
@@ -958,6 +965,8 @@ public partial class MainWindow
     private void LoadModConfigProfileDraft()
     {
         var root = Path.Combine(ModConfigProfilesRoot, SafeProfileName(settings.ActiveModConfigProfile));
+        var profileExists = Directory.Exists(root);
+        modConfigViewCache.Clear();
         foreach (var draft in modConfigDrafts)
         {
             if (draft.IsAutoDiscovered)
@@ -970,7 +979,8 @@ public partial class MainWindow
             var folder = Path.Combine(root, draft.Definition.Id); var primary = draft.Definition.PrimaryJson.Length > 0 ? Path.Combine(folder, draft.Definition.PrimaryJson) : Path.Combine(folder, Path.GetFileName(draft.SourcePath));
             if (!File.Exists(primary)) continue; try { draft.Json = JsonNode.Parse(File.ReadAllText(primary)) as JsonObject; } catch { }
         }
-        RenderSelectedModConfigSafely(); StatusText.Text = $"已载入 Mod 配置草稿：{settings.ActiveModConfigProfile}";
+        RenderSelectedModConfigSafely();
+        StatusText.Text = profileExists ? $"已还原 Mod 配置草稿：{settings.ActiveModConfigProfile}" : $"配置尚未保存，当前显示实例默认值：{settings.ActiveModConfigProfile}";
     }
 
     private void ApplySelectedModConfig_Click(object sender, RoutedEventArgs e)
