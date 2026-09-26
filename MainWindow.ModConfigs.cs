@@ -336,18 +336,27 @@ public partial class MainWindow
             return;
         }
         var categoryPanels = new Dictionary<string, StackPanel>(StringComparer.OrdinalIgnoreCase);
+        var generalPanel = new StackPanel { Margin = new Thickness(4) };
         foreach (var category in draft.Json)
         {
             if (category.Key == "TweakHotkeys" && draft.Json["TweakToggles"] is JsonObject) continue;
             if (category.Key == "DisableHotkeys" && draft.Json["DisableToggles"] is JsonObject) continue;
-            var panel = new StackPanel { Margin = new Thickness(4) };
             if (category.Value is JsonObject group)
             {
+                var panel = new StackPanel { Margin = new Thickness(4) };
                 RenderJsonObjectRows(draft, category.Key, group, panel, search, "");
+                if (panel.Children.Count == 0) continue;
+                if (CountEditableConfigValues(group) > 1) categoryPanels[category.Key] = panel;
+                else
+                {
+                    generalPanel.Children.Add(new TextBlock { Text = TranslateCategory(draft, category.Key), Foreground = new SolidColorBrush(Color.FromRgb(103, 190, 245)), FontWeight = FontWeights.SemiBold, Margin = new Thickness(4, 8, 4, 7) });
+                    foreach (UIElement child in panel.Children.Cast<UIElement>().ToList()) { panel.Children.Remove(child); generalPanel.Children.Add(child); }
+                }
             }
-            else if (category.Value is JsonValue) panel.Children.Add(BuildModOptionRow(draft, category.Key, draft.Json, category.Key, category.Value));
-            if (panel.Children.Count > 0) categoryPanels[category.Key] = panel;
+            else if (category.Value is JsonValue && (search.Length == 0 || (category.Key + category.Value).Contains(search, StringComparison.OrdinalIgnoreCase)))
+                generalPanel.Children.Add(BuildModOptionRow(draft, "General", draft.Json, category.Key, category.Value));
         }
+        if (generalPanel.Children.Count > 0) categoryPanels = new Dictionary<string, StackPanel>(new[] { new KeyValuePair<string, StackPanel>("General", generalPanel) }.Concat(categoryPanels), StringComparer.OrdinalIgnoreCase);
         var existingHotkeys = CollectExistingHotkeyNames(draft.Json);
         var discovered = draft.DiscoveredHotkeys.Where(key => !existingHotkeys.Contains(key)).Where(key => search.Length == 0 || TranslateConfigOption(draft, "Hotkeys", key).Label.Contains(search, StringComparison.OrdinalIgnoreCase) || key.Contains(search, StringComparison.OrdinalIgnoreCase)).ToList();
         if (discovered.Count > 0)
@@ -404,6 +413,15 @@ public partial class MainWindow
     {
         if (value.ContainsKey("enabled") || value.ContainsKey("hotkey") || value.ContainsKey("keys") || value.ContainsKey("keybind") || value.ContainsKey("shortcut")) return true;
         return value.Count == 1 && value.First().Key == "value";
+    }
+
+    private static int CountEditableConfigValues(JsonNode? node)
+    {
+        if (node is JsonValue) return 1;
+        if (node is JsonArray || node is null) return 0;
+        if (node is not JsonObject obj) return 0;
+        if (IsEditableConfigObject(obj)) return 1;
+        return obj.Sum(item => CountEditableConfigValues(item.Value));
     }
 
     private static HashSet<string> CollectExistingHotkeyNames(JsonObject root)
