@@ -1,0 +1,17 @@
+bin/
+obj/
+.vs/
+.vscode/
+*.user
+*.suo
+*.pdb
+release*/
+dist/
+ui-preview.png
+settings.json
+shader-preview.log
+previews/
+font-banners/
+pack-banners/
+shader-previews/
+shader-previews-online/
