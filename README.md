@@ -17,6 +17,7 @@
 - Mod 配置标签与说明直接读取已安装 Mod JAR 内的 `zh_cn.json` / `en_us.json`，支持中文优先、中英双语和英文三种显示方式；新版本新增配置无需等待软件更新翻译表。
 - MaLiLib 风格的复合配置会显示为同一行“启用开关 + 热键捕获 + 清除”，Tweakeroo 的开关与热键分类会自动合并，无需手写 `LEFT_CONTROL,KP_1` 等内部键名。
 - 通用配置发现器会递归识别任意深度的 `keys`、`hotkey`、`keybind`、`shortcut` 与 `binding` 结构；还会结合 Mod i18n 和 JAR 内 Hotkey/Keybind 类发现尚未写入 JSON 的默认快捷键，仅持久化用户实际修改的覆盖项。
+- 同一发现器也会扫描 Config、Features、Settings、Toggle 与 Options 配置声明，补出尚未写入 JSON 的布尔功能；使用“Mod 默认 / 强制启用 / 强制禁用”三态控件，未手动覆盖的功能不会被写入。
 - 写入前自动备份 `options.txt`，仅修改目标配置项。
 
 ## 构建与运行

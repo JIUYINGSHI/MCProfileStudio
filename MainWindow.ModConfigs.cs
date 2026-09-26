@@ -24,9 +24,13 @@ public partial class MainWindow
         public JsonObject? Json { get; set; }
         public List<string> DiscoveredHotkeys { get; } = [];
         public JsonObject HotkeyOverrides { get; } = new();
+        public List<DiscoveredBooleanOption> DiscoveredOptions { get; } = [];
+        public Dictionary<string, bool> BooleanOverrides { get; } = new(StringComparer.OrdinalIgnoreCase);
         public bool IsDetected { get; set; }
         public override string ToString() => Definition.DisplayName;
     }
+
+    private sealed record DiscoveredBooleanOption(string Category, string Key);
 
     private static readonly ModConfigDefinition[] SupportedModConfigs =
     [
@@ -145,6 +149,7 @@ public partial class MainWindow
                 JsonObject? json = null; try { json = JsonNode.Parse(File.ReadAllText(primary)) as JsonObject; } catch { }
                 var draft = new ModConfigDraft { Definition = definition, SourcePath = path, Json = json, IsDetected = true };
                 foreach (var hotkey in DiscoverHotkeyNames(definition)) draft.DiscoveredHotkeys.Add(hotkey);
+                foreach (var option in DiscoverBooleanOptions(definition, json)) draft.DiscoveredOptions.Add(option);
                 modConfigDrafts.Add(draft);
             }
         }
@@ -181,6 +186,18 @@ public partial class MainWindow
             panel.Children.Add(new TextBlock { Text = "这些快捷键由 Mod 的 i18n 与字节码定义自动发现；未修改项保持 Mod 默认值。", Foreground = new SolidColorBrush(Color.FromRgb(166, 185, 203)), TextWrapping = TextWrapping.Wrap, Margin = new Thickness(4, 0, 4, 10) });
             foreach (var key in discovered) panel.Children.Add(BuildDiscoveredHotkeyRow(draft, key));
             modConfigTabs.Items.Add(new TabItem { Header = $"自动发现的快捷键（{discovered.Count}）", Content = new ScrollViewer { Content = panel, VerticalScrollBarVisibility = ScrollBarVisibility.Auto } });
+        }
+        var existingOptions = CollectExistingConfigNames(draft.Json);
+        var discoveredOptions = draft.DiscoveredOptions
+            .Where(option => !existingOptions.Contains(option.Key))
+            .Where(option => search.Length == 0 || TranslateConfigOption(draft, option.Category, option.Key).Label.Contains(search, StringComparison.OrdinalIgnoreCase) || option.Key.Contains(search, StringComparison.OrdinalIgnoreCase))
+            .ToList();
+        if (discoveredOptions.Count > 0)
+        {
+            var panel = new StackPanel { Margin = new Thickness(4) };
+            panel.Children.Add(new TextBlock { Text = "这些功能由 Mod 的 i18n 与配置声明自动发现。保持“使用 Mod 默认”时不会向配置文件写入任何值。", Foreground = new SolidColorBrush(Color.FromRgb(166, 185, 203)), TextWrapping = TextWrapping.Wrap, Margin = new Thickness(4, 0, 4, 10) });
+            foreach (var option in discoveredOptions) panel.Children.Add(BuildDiscoveredBooleanRow(draft, option));
+            modConfigTabs.Items.Add(new TabItem { Header = $"自动发现的功能（{discoveredOptions.Count}）", Content = new ScrollViewer { Content = panel, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled } });
         }
         if (modConfigTabs.Items.Count > 0) modConfigTabs.SelectedIndex = 0;
     }
@@ -223,6 +240,20 @@ public partial class MainWindow
                 if (item.Value is not JsonObject child) continue;
                 if (child.ContainsKey("keys") || child.ContainsKey("hotkey") || child.ContainsKey("keybind") || child.ContainsKey("shortcut")) result.Add(item.Key);
                 Walk(child);
+            }
+        }
+        Walk(root); return result;
+    }
+
+    private static HashSet<string> CollectExistingConfigNames(JsonObject root)
+    {
+        var result = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        void Walk(JsonObject current)
+        {
+            foreach (var item in current)
+            {
+                result.Add(item.Key);
+                if (item.Value is JsonObject child) Walk(child);
             }
         }
         Walk(root); return result;
@@ -340,6 +371,22 @@ public partial class MainWindow
         var editor = BuildHotkeyEditor(draft.HotkeyOverrides, key); Grid.SetColumn(editor, 1); grid.Children.Add(editor); border.Child = grid; return border;
     }
 
+    private FrameworkElement BuildDiscoveredBooleanRow(ModConfigDraft draft, DiscoveredBooleanOption option)
+    {
+        var border = new Border { Margin = new Thickness(0, 0, 0, 8), Padding = new Thickness(12, 9, 12, 9), CornerRadius = new CornerRadius(8), Background = new SolidColorBrush(Color.FromArgb(175, 47, 47, 47)), BorderBrush = new SolidColorBrush(Color.FromRgb(116, 116, 116)), BorderThickness = new Thickness(1) };
+        var grid = new Grid(); grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1.05, GridUnitType.Star) }); grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1.4, GridUnitType.Star) });
+        var translated = TranslateConfigOption(draft, option.Category, option.Key);
+        grid.Children.Add(new TextBlock { Text = translated.Label, ToolTip = translated.Tooltip, Foreground = Brushes.White, VerticalAlignment = VerticalAlignment.Center, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 12, 0) });
+        var combo = new ComboBox { ItemsSource = new[] { "使用 Mod 默认", "强制启用", "强制禁用" }, SelectedIndex = draft.BooleanOverrides.TryGetValue(option.Key, out var enabled) ? enabled ? 1 : 2 : 0 };
+        combo.SelectionChanged += (_, _) =>
+        {
+            if (combo.SelectedIndex == 0) draft.BooleanOverrides.Remove(option.Key);
+            else draft.BooleanOverrides[option.Key] = combo.SelectedIndex == 1;
+            MarkModConfigDraftChanged();
+        };
+        Grid.SetColumn(combo, 1); grid.Children.Add(combo); border.Child = grid; return border;
+    }
+
     private List<string> DiscoverHotkeyNames(ModConfigDefinition definition)
     {
         var info = FindModTranslationInfo(definition); if (info == null || string.IsNullOrWhiteSpace(info.JarPath) || !File.Exists(info.JarPath)) return [];
@@ -358,6 +405,62 @@ public partial class MainWindow
             return candidates.Where(key => classText.Contains(key, StringComparison.OrdinalIgnoreCase) || classText.Contains(key.ToUpperInvariant(), StringComparison.Ordinal)).Order(StringComparer.OrdinalIgnoreCase).ToList();
         }
         catch { return []; }
+    }
+
+    private List<DiscoveredBooleanOption> DiscoverBooleanOptions(ModConfigDefinition definition, JsonObject? json)
+    {
+        var info = FindModTranslationInfo(definition); if (info == null || string.IsNullOrWhiteSpace(info.JarPath) || !File.Exists(info.JarPath)) return [];
+        var existing = json == null ? new HashSet<string>(StringComparer.OrdinalIgnoreCase) : CollectExistingConfigNames(json);
+        var hotkeys = DiscoverHotkeyNames(definition).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var candidates = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var translationKey in info.EnglishTranslations.Keys.Concat(info.ChineseTranslations.Keys))
+        {
+            var markers = new[] { ".config.name.", ".config.prettyName.", ".config.feature_toggle.prettyName.", ".config.disable_toggle.prettyName." };
+            foreach (var marker in markers)
+            {
+                var index = translationKey.IndexOf(marker, StringComparison.OrdinalIgnoreCase); if (index < 0) continue;
+                var candidate = translationKey[(index + marker.Length)..];
+                var englishLabel = info.EnglishTranslations.TryGetValue(translationKey, out var translated) ? translated : "";
+                if (!string.IsNullOrWhiteSpace(candidate) && !candidate.Contains('.') && !existing.Contains(candidate) && !hotkeys.Contains(candidate) && IsLikelyBooleanConfig(candidate, englishLabel)) candidates.Add(candidate);
+            }
+        }
+        if (candidates.Count == 0) return [];
+        try
+        {
+            using var zip = ZipFile.OpenRead(info.JarPath);
+            var result = new Dictionary<string, DiscoveredBooleanOption>(StringComparer.OrdinalIgnoreCase);
+            foreach (var entry in zip.Entries.Where(entry => entry.FullName.EndsWith(".class", StringComparison.OrdinalIgnoreCase)
+                && (entry.FullName.Contains("config", StringComparison.OrdinalIgnoreCase) || entry.FullName.Contains("feature", StringComparison.OrdinalIgnoreCase) || entry.FullName.Contains("setting", StringComparison.OrdinalIgnoreCase) || entry.FullName.Contains("toggle", StringComparison.OrdinalIgnoreCase) || entry.FullName.Contains("option", StringComparison.OrdinalIgnoreCase))
+                && !entry.FullName.Contains("hotkey", StringComparison.OrdinalIgnoreCase) && !entry.FullName.Contains("keybind", StringComparison.OrdinalIgnoreCase) && !entry.FullName.Contains("shortcut", StringComparison.OrdinalIgnoreCase)))
+            {
+                using var stream = entry.Open(); using var memory = new MemoryStream(); stream.CopyTo(memory); var classText = Encoding.Latin1.GetString(memory.ToArray());
+                var className = Path.GetFileNameWithoutExtension(entry.FullName).Split('$')[0];
+                var category = GuessDiscoveredCategory(json, entry.FullName, className);
+                foreach (var candidate in candidates)
+                    if (!result.ContainsKey(candidate) && (classText.Contains(candidate, StringComparison.OrdinalIgnoreCase) || classText.Contains(ToSnakeCase(candidate), StringComparison.OrdinalIgnoreCase)))
+                        result[candidate] = new DiscoveredBooleanOption(category, candidate);
+            }
+            return result.Values.OrderBy(option => option.Category, StringComparer.OrdinalIgnoreCase).ThenBy(option => option.Key, StringComparer.OrdinalIgnoreCase).ToList();
+        }
+        catch { return []; }
+    }
+
+    private static bool IsLikelyBooleanConfig(string key, string englishLabel)
+    {
+        var normalized = ToSnakeCase(key);
+        if (normalized.StartsWith("enable_") || normalized.StartsWith("disable_") || normalized.StartsWith("show_") || normalized.StartsWith("allow_") || normalized.StartsWith("always_") || normalized.StartsWith("use_") || normalized.StartsWith("prevent_") || normalized.StartsWith("remember_") || normalized.StartsWith("auto_") || normalized.StartsWith("highlight_") || normalized.StartsWith("continuous_")) return true;
+        var label = CleanMinecraftFormatting(englishLabel);
+        return label.StartsWith("Enable ", StringComparison.OrdinalIgnoreCase) || label.StartsWith("Disable ", StringComparison.OrdinalIgnoreCase) || label.StartsWith("Show ", StringComparison.OrdinalIgnoreCase) || label.StartsWith("Allow ", StringComparison.OrdinalIgnoreCase) || label.StartsWith("Always ", StringComparison.OrdinalIgnoreCase) || label.StartsWith("Use ", StringComparison.OrdinalIgnoreCase) || label.StartsWith("Prevent ", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string GuessDiscoveredCategory(JsonObject? json, string classPath, string className)
+    {
+        if (json != null)
+            foreach (var category in json.Select(item => item.Key))
+                if (classPath.Contains(category, StringComparison.OrdinalIgnoreCase) || className.Contains(category, StringComparison.OrdinalIgnoreCase)) return category;
+        if (className.Contains("feature", StringComparison.OrdinalIgnoreCase) || className.Contains("toggle", StringComparison.OrdinalIgnoreCase)) return "Features";
+        if (className.Contains("gui", StringComparison.OrdinalIgnoreCase)) return "GuiSettings";
+        return className.EndsWith("Config", StringComparison.OrdinalIgnoreCase) ? "ModSettings" : className;
     }
 
     private static string ScalarDisplay(JsonNode? value)
@@ -534,6 +637,14 @@ public partial class MainWindow
                 {
                     var hotkeys = draft.Json["Hotkeys"] as JsonObject ?? new JsonObject(); draft.Json["Hotkeys"] = hotkeys;
                     foreach (var item in draft.HotkeyOverrides) hotkeys[item.Key] = new JsonObject { ["keys"] = item.Value?.DeepClone() };
+                }
+                foreach (var item in draft.BooleanOverrides)
+                {
+                    var option = draft.DiscoveredOptions.FirstOrDefault(candidate => candidate.Key.Equals(item.Key, StringComparison.OrdinalIgnoreCase));
+                    if (option == null) continue;
+                    var category = draft.Json[option.Category] as JsonObject ?? new JsonObject(); draft.Json[option.Category] = category;
+                    var usesValueWrapper = category.Any(pair => pair.Value is JsonObject wrapper && wrapper.Count == 1 && wrapper["value"] is JsonValue wrapped && wrapped.TryGetValue<bool>(out _));
+                    category[option.Key] = usesValueWrapper ? new JsonObject { ["value"] = item.Value } : JsonValue.Create(item.Value);
                 }
                 File.WriteAllText(primary, draft.Json.ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
             }
