@@ -13,6 +13,7 @@
 - 键位既可仅应用于当前实例，也可保存为只对对应 Mod 生效的专属配置。
 - 可直接导入任意 `options.txt`，并按需选择资源包排序、光影选择或键位；导入内容先进入草稿。
 - 资源包和键位支持多套命名配置，只有点击“保存配置”才会持久化修改。
+- 独立的“Mod 配置”页面可管理 Tweakeroo、Litematica、Inventory Profiles Next、TweakerMore、Item Scroller、MiniHUD 与 MaLiLib 自有配置；按游戏内分类编辑开关、快捷键和列表，并将整套配置保存后按已安装 Mod 一键覆盖到新实例。
 - 写入前自动备份 `options.txt`，仅修改目标配置项。
 
 ## 构建与运行
