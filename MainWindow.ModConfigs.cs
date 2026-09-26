@@ -152,7 +152,7 @@ public partial class MainWindow
         var center = MakeModConfigCard(new Thickness(10, 0, 10, 14));
         var centerGrid = new Grid(); centerGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto }); centerGrid.RowDefinitions.Add(new RowDefinition());
         modConfigSearch = new TextBox { ToolTip = "搜索选项名称或当前值", Margin = new Thickness(0, 0, 0, 10) };
-        modConfigSearch.TextChanged += (_, _) => RenderSelectedModConfig(); Grid.SetRow(modConfigSearch, 0); centerGrid.Children.Add(modConfigSearch);
+        modConfigSearch.TextChanged += (_, _) => RenderSelectedModConfigSafely(); Grid.SetRow(modConfigSearch, 0); centerGrid.Children.Add(modConfigSearch);
         modConfigTabs = new TabControl { Background = Brushes.Transparent, BorderThickness = new Thickness(0) };
         modConfigTabs.PreviewMouseWheel += ModConfigTabs_PreviewMouseWheel;
         Grid.SetRow(modConfigTabs, 1); centerGrid.Children.Add(modConfigTabs);
@@ -168,10 +168,10 @@ public partial class MainWindow
         actions.Children.Add(MakeActionButton("保存当前草稿", SaveModConfigProfile_Click, new Thickness(0, 7, 0, 0)));
         actions.Children.Add(new TextBlock { Text = "选项显示语言", Foreground = new SolidColorBrush(Color.FromRgb(166, 185, 203)), Margin = new Thickness(0, 14, 0, 6) });
         modConfigLanguageCombo = new ComboBox { ItemsSource = new[] { "中文优先", "中英双语", "English" }, SelectedItem = settings.ModConfigLanguage };
-        modConfigLanguageCombo.SelectionChanged += (_, _) => { if (modConfigLanguageCombo.SelectedItem is string language) { settings.ModConfigLanguage = language; SettingsStore.Save(settings); RenderSelectedModConfig(); } }; actions.Children.Add(modConfigLanguageCombo);
+        modConfigLanguageCombo.SelectionChanged += (_, _) => { if (modConfigLanguageCombo.SelectedItem is string language) { settings.ModConfigLanguage = language; SettingsStore.Save(settings); RenderSelectedModConfigSafely(); } }; actions.Children.Add(modConfigLanguageCombo);
         actions.Children.Add(new Separator { Opacity = .2, Margin = new Thickness(0, 14, 0, 12) });
-        actions.Children.Add(MakeActionButton("应用当前 Mod", ApplySelectedModConfig_Click, new Thickness(0), false));
-        actions.Children.Add(MakeActionButton("一键覆盖全部已安装 Mod", ApplyAllModConfigs_Click, new Thickness(0, 7, 0, 0)));
+        actions.Children.Add(MakeActionButton("应用当前选中 Mod", ApplySelectedModConfig_Click, new Thickness(0), false));
+        actions.Children.Add(MakeActionButton("应用全部已安装 Mod", ApplyAllModConfigs_Click, new Thickness(0, 7, 0, 0)));
         modConfigHint = new TextBlock { Foreground = new SolidColorBrush(Color.FromRgb(103, 190, 245)), TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 14, 0, 0) }; actions.Children.Add(modConfigHint);
         right.Child = actions; Grid.SetColumn(right, 2); modConfigsPage.Children.Add(right);
 
@@ -298,7 +298,18 @@ public partial class MainWindow
         return obj.Any(item => ContainsEditableConfigValue(item.Value));
     }
 
-    private void ModConfigModList_SelectionChanged(object sender, SelectionChangedEventArgs e) => RenderSelectedModConfig();
+    private void ModConfigModList_SelectionChanged(object sender, SelectionChangedEventArgs e) => RenderSelectedModConfigSafely();
+
+    private void RenderSelectedModConfigSafely()
+    {
+        try { RenderSelectedModConfig(); }
+        catch (Exception ex)
+        {
+            modConfigTabs?.Items.Clear();
+            StatusText.Text = "此 Mod 的配置页面生成失败";
+            MessageBox.Show($"无法生成此 Mod 的配置页面：\n{ex.Message}\n\n该错误不会影响其他 Mod。", "配置页面错误", MessageBoxButton.OK, MessageBoxImage.Error);
+        }
+    }
 
     private void ModConfigTabs_PreviewMouseWheel(object sender, MouseWheelEventArgs e)
     {
@@ -356,7 +367,17 @@ public partial class MainWindow
             else if (category.Value is JsonValue && (search.Length == 0 || (category.Key + category.Value).Contains(search, StringComparison.OrdinalIgnoreCase)))
                 generalPanel.Children.Add(BuildModOptionRow(draft, "General", draft.Json, category.Key, category.Value));
         }
-        if (generalPanel.Children.Count > 0) categoryPanels = new Dictionary<string, StackPanel>(new[] { new KeyValuePair<string, StackPanel>("General", generalPanel) }.Concat(categoryPanels), StringComparer.OrdinalIgnoreCase);
+        if (generalPanel.Children.Count > 0)
+        {
+            if (categoryPanels.TryGetValue("General", out var existingGeneral))
+            {
+                foreach (UIElement child in existingGeneral.Children.Cast<UIElement>().ToList()) { existingGeneral.Children.Remove(child); generalPanel.Children.Add(child); }
+                categoryPanels.Remove("General");
+            }
+            var mergedPanels = new Dictionary<string, StackPanel>(StringComparer.OrdinalIgnoreCase) { ["General"] = generalPanel };
+            foreach (var item in categoryPanels) mergedPanels[item.Key] = item.Value;
+            categoryPanels = mergedPanels;
+        }
         var existingHotkeys = CollectExistingHotkeyNames(draft.Json);
         var discovered = draft.DiscoveredHotkeys.Where(key => !existingHotkeys.Contains(key)).Where(key => search.Length == 0 || TranslateConfigOption(draft, "Hotkeys", key).Label.Contains(search, StringComparison.OrdinalIgnoreCase) || key.Contains(search, StringComparison.OrdinalIgnoreCase)).ToList();
         if (discovered.Count > 0)
@@ -949,7 +970,7 @@ public partial class MainWindow
             var folder = Path.Combine(root, draft.Definition.Id); var primary = draft.Definition.PrimaryJson.Length > 0 ? Path.Combine(folder, draft.Definition.PrimaryJson) : Path.Combine(folder, Path.GetFileName(draft.SourcePath));
             if (!File.Exists(primary)) continue; try { draft.Json = JsonNode.Parse(File.ReadAllText(primary)) as JsonObject; } catch { }
         }
-        RenderSelectedModConfig(); StatusText.Text = $"已载入 Mod 配置草稿：{settings.ActiveModConfigProfile}";
+        RenderSelectedModConfigSafely(); StatusText.Text = $"已载入 Mod 配置草稿：{settings.ActiveModConfigProfile}";
     }
 
     private void ApplySelectedModConfig_Click(object sender, RoutedEventArgs e)
@@ -961,30 +982,39 @@ public partial class MainWindow
 
     private void ApplyModConfigProfile(IEnumerable<ModConfigDraft> drafts)
     {
-        if (string.IsNullOrWhiteSpace(instance)) return; var profileRoot = Path.Combine(ModConfigProfilesRoot, SafeProfileName(settings.ActiveModConfigProfile)); var applied = 0;
-        foreach (var draft in drafts)
+        if (string.IsNullOrWhiteSpace(instance)) return;
+        try
         {
-            var source = Path.Combine(profileRoot, draft.Definition.Id); if (!Directory.Exists(source) || !draft.IsDetected) continue;
-            if (draft.IsAutoDiscovered)
+            var profileRoot = Path.Combine(ModConfigProfilesRoot, SafeProfileName(settings.ActiveModConfigProfile)); var applied = 0;
+            foreach (var draft in drafts)
             {
-                var filesRoot = Path.Combine(source, "files"); if (!Directory.Exists(filesRoot)) continue;
-                foreach (var profileFile in Directory.EnumerateFiles(filesRoot, "*", SearchOption.AllDirectories))
+                var source = Path.Combine(profileRoot, draft.Definition.Id); if (!Directory.Exists(source) || !draft.IsDetected) continue;
+                if (draft.IsAutoDiscovered)
                 {
-                    var target = Path.Combine(instance, "config", Path.GetRelativePath(filesRoot, profileFile)); BackupModConfig(target); Directory.CreateDirectory(Path.GetDirectoryName(target)!); File.Copy(profileFile, target, true);
+                    var filesRoot = Path.Combine(source, "files"); if (!Directory.Exists(filesRoot)) continue;
+                    foreach (var profileFile in Directory.EnumerateFiles(filesRoot, "*", SearchOption.AllDirectories))
+                    {
+                        var target = Path.Combine(instance, "config", Path.GetRelativePath(filesRoot, profileFile)); BackupModConfig(target); Directory.CreateDirectory(Path.GetDirectoryName(target)!); MakeFileWritable(target); File.Copy(profileFile, target, true);
+                    }
+                    applied++; continue;
                 }
-                applied++; continue;
+                if (Directory.Exists(draft.SourcePath)) { BackupModConfig(draft.SourcePath); MakeTreeWritable(draft.SourcePath); CopyDirectory(source, draft.SourcePath); }
+                else { var profileFile = Path.Combine(source, Path.GetFileName(draft.SourcePath)); if (!File.Exists(profileFile)) continue; BackupModConfig(draft.SourcePath); Directory.CreateDirectory(Path.GetDirectoryName(draft.SourcePath)!); MakeFileWritable(draft.SourcePath); File.Copy(profileFile, draft.SourcePath, true); }
+                applied++;
             }
-            if (Directory.Exists(draft.SourcePath)) { BackupModConfig(draft.SourcePath); CopyDirectory(source, draft.SourcePath); }
-            else { var profileFile = Path.Combine(source, Path.GetFileName(draft.SourcePath)); if (!File.Exists(profileFile)) continue; BackupModConfig(draft.SourcePath); Directory.CreateDirectory(Path.GetDirectoryName(draft.SourcePath)!); File.Copy(profileFile, draft.SourcePath, true); }
-            applied++;
+            StatusText.Text = $"已覆盖 {applied} 个已安装 Mod 的独立配置"; MessageBox.Show(this, $"已应用 {applied} 个 Mod 配置。写入前已生成 .mcprofilestudio.bak 备份。\n请在 Minecraft 关闭时执行覆盖，部分 Mod 只会在下次启动时读取配置。", "Mod 配置已应用", MessageBoxButton.OK, MessageBoxImage.Information);
         }
-        StatusText.Text = $"已覆盖 {applied} 个已安装 Mod 的独立配置"; MessageBox.Show(this, $"已应用 {applied} 个 Mod 配置。写入前已生成 .mcprofilestudio.bak 备份。\n请在 Minecraft 关闭时执行覆盖，部分 Mod 只会在下次启动时读取配置。", "Mod 配置已应用", MessageBoxButton.OK, MessageBoxImage.Information);
+        catch (Exception ex)
+        {
+            StatusText.Text = "应用 Mod 配置失败";
+            MessageBox.Show(this, $"应用 Mod 配置失败：\n{ex.Message}\n\n已写入的文件均保留了 .mcprofilestudio.bak 备份。", "应用失败", MessageBoxButton.OK, MessageBoxImage.Error);
+        }
     }
 
     private static void BackupModConfig(string path)
     {
-        if (File.Exists(path)) File.Copy(path, path + ".mcprofilestudio.bak", true);
-        else if (Directory.Exists(path)) { var primaryFiles = Directory.EnumerateFiles(path, "*.json", SearchOption.TopDirectoryOnly); foreach (var file in primaryFiles) File.Copy(file, file + ".mcprofilestudio.bak", true); }
+        if (File.Exists(path)) { MakeFileWritable(path + ".mcprofilestudio.bak"); File.Copy(path, path + ".mcprofilestudio.bak", true); }
+        else if (Directory.Exists(path)) { var primaryFiles = Directory.EnumerateFiles(path, "*.json", SearchOption.TopDirectoryOnly); foreach (var file in primaryFiles) { MakeFileWritable(file + ".mcprofilestudio.bak"); File.Copy(file, file + ".mcprofilestudio.bak", true); } }
     }
 
     private static void CopyDirectory(string source, string destination)
