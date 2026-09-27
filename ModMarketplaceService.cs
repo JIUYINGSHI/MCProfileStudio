@@ -180,6 +180,80 @@ public static class ModMarketplaceService
         using var document = JsonDocument.Parse(await response.Content.ReadAsStreamAsync(token)); return document.RootElement.TryGetProperty("data", out var data) && data.ValueKind == JsonValueKind.String ? data.GetString() ?? "" : "";
     }
 
+    public static async Task<List<ResolvedModDependency>> ResolveRequiredDependenciesAsync(IEnumerable<(FavoriteMod Mod, ModDownloadVersion Version)> roots, string gameVersion, string loader, string curseForgeApiKey, CancellationToken token)
+    {
+        var resolved = new List<ResolvedModDependency>();
+        var visited = roots.Select(item => item.Mod.Source + ":" + item.Mod.ProjectId).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        foreach (var root in roots) await ResolveDependenciesRecursiveAsync(root.Mod, root.Version, root.Mod.Name, gameVersion, loader, curseForgeApiKey, visited, resolved, token);
+        return resolved;
+    }
+
+    private static async Task ResolveDependenciesRecursiveAsync(FavoriteMod parent, ModDownloadVersion version, string requiredBy, string gameVersion, string loader, string curseForgeApiKey, HashSet<string> visited, List<ResolvedModDependency> resolved, CancellationToken token)
+    {
+        if (parent.Source == "Modrinth")
+        {
+            using var response = await Client.GetAsync($"https://api.modrinth.com/v2/version/{Uri.EscapeDataString(version.Id)}", token); response.EnsureSuccessStatusCode();
+            using var document = JsonDocument.Parse(await response.Content.ReadAsStreamAsync(token));
+            foreach (var dependency in document.RootElement.GetProperty("dependencies").EnumerateArray().Where(item => item.GetProperty("dependency_type").GetString() == "required"))
+            {
+                var projectId = dependency.TryGetProperty("project_id", out var rawProject) && rawProject.ValueKind == JsonValueKind.String ? rawProject.GetString() ?? "" : "";
+                var versionId = dependency.TryGetProperty("version_id", out var rawVersion) && rawVersion.ValueKind == JsonValueKind.String ? rawVersion.GetString() ?? "" : "";
+                if (string.IsNullOrWhiteSpace(projectId) && !string.IsNullOrWhiteSpace(versionId)) projectId = await GetModrinthVersionProjectIdAsync(versionId, token);
+                if (string.IsNullOrWhiteSpace(projectId) || !visited.Add("Modrinth:" + projectId)) continue;
+                var mod = await GetModrinthProjectAsync(projectId, token);
+                var selected = !string.IsNullOrWhiteSpace(versionId) ? await GetModrinthVersionAsync(projectId, versionId, gameVersion, loader, token) : (await GetModrinthVersionsAsync(mod, gameVersion, loader, token)).FirstOrDefault();
+                if (selected == null) throw new InvalidOperationException($"前置 {mod.Name} 没有兼容 {gameVersion} / {loader} 的版本。");
+                await ResolveDependenciesRecursiveAsync(mod, selected, mod.Name, gameVersion, loader, curseForgeApiKey, visited, resolved, token);
+                resolved.Add(new ResolvedModDependency { Mod = mod, Version = selected, RequiredBy = requiredBy });
+            }
+        }
+        else if (parent.Source == "CurseForge")
+        {
+            if (string.IsNullOrWhiteSpace(curseForgeApiKey)) throw new InvalidOperationException("审查 CurseForge 前置需要配置 CurseForge API Key。");
+            using var request = new HttpRequestMessage(HttpMethod.Get, $"https://api.curseforge.com/v1/mods/{parent.ProjectId}/files/{version.Id}"); request.Headers.Add("x-api-key", curseForgeApiKey);
+            using var response = await Client.SendAsync(request, token); response.EnsureSuccessStatusCode();
+            using var document = JsonDocument.Parse(await response.Content.ReadAsStreamAsync(token));
+            foreach (var dependency in document.RootElement.GetProperty("data").GetProperty("dependencies").EnumerateArray().Where(item => item.GetProperty("relationType").GetInt32() == 3))
+            {
+                var projectId = dependency.GetProperty("modId").GetInt64().ToString(); if (!visited.Add("CurseForge:" + projectId)) continue;
+                var mod = await GetCurseForgeProjectAsync(projectId, curseForgeApiKey, token);
+                var selected = (await GetCurseForgeVersionsAsync(mod, gameVersion, loader, curseForgeApiKey, token)).FirstOrDefault();
+                if (selected == null) throw new InvalidOperationException($"前置 {mod.Name} 没有兼容 {gameVersion} / {loader} 的版本。");
+                await ResolveDependenciesRecursiveAsync(mod, selected, mod.Name, gameVersion, loader, curseForgeApiKey, visited, resolved, token);
+                resolved.Add(new ResolvedModDependency { Mod = mod, Version = selected, RequiredBy = requiredBy });
+            }
+        }
+    }
+
+    private static async Task<string> GetModrinthVersionProjectIdAsync(string versionId, CancellationToken token)
+    {
+        using var response = await Client.GetAsync($"https://api.modrinth.com/v2/version/{Uri.EscapeDataString(versionId)}", token); response.EnsureSuccessStatusCode();
+        using var document = JsonDocument.Parse(await response.Content.ReadAsStreamAsync(token)); return document.RootElement.GetProperty("project_id").GetString() ?? "";
+    }
+
+    private static async Task<FavoriteMod> GetModrinthProjectAsync(string projectId, CancellationToken token)
+    {
+        using var response = await Client.GetAsync($"https://api.modrinth.com/v2/project/{Uri.EscapeDataString(projectId)}", token); response.EnsureSuccessStatusCode();
+        using var document = JsonDocument.Parse(await response.Content.ReadAsStreamAsync(token)); var root = document.RootElement;
+        return new FavoriteMod { Source = "Modrinth", ProjectId = projectId, Slug = root.GetProperty("slug").GetString() ?? "", Name = root.GetProperty("title").GetString() ?? projectId, Description = root.TryGetProperty("description", out var description) ? description.GetString() ?? "" : "", IconUrl = root.TryGetProperty("icon_url", out var icon) && icon.ValueKind == JsonValueKind.String ? icon.GetString() ?? "" : "" };
+    }
+
+    private static async Task<ModDownloadVersion?> GetModrinthVersionAsync(string projectId, string versionId, string gameVersion, string loader, CancellationToken token)
+    {
+        using var response = await Client.GetAsync($"https://api.modrinth.com/v2/version/{Uri.EscapeDataString(versionId)}", token); response.EnsureSuccessStatusCode();
+        using var document = JsonDocument.Parse(await response.Content.ReadAsStreamAsync(token)); var item = document.RootElement;
+        if (!item.GetProperty("game_versions").EnumerateArray().Any(value => value.GetString() == gameVersion) || !item.GetProperty("loaders").EnumerateArray().Any(value => value.GetString()?.Equals(loader, StringComparison.OrdinalIgnoreCase) == true)) return null;
+        var files = item.GetProperty("files").EnumerateArray().ToList(); if (files.Count == 0) return null; var file = files.FirstOrDefault(candidate => candidate.TryGetProperty("primary", out var primary) && primary.GetBoolean()); if (file.ValueKind == JsonValueKind.Undefined) file = files[0];
+        return new ModDownloadVersion { Source = "Modrinth", ProjectId = projectId, Id = versionId, DisplayName = item.GetProperty("name").GetString() ?? "", VersionNumber = item.GetProperty("version_number").GetString() ?? "", FileName = file.GetProperty("filename").GetString() ?? "", DownloadUrl = file.GetProperty("url").GetString() ?? "" };
+    }
+
+    private static async Task<FavoriteMod> GetCurseForgeProjectAsync(string projectId, string apiKey, CancellationToken token)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Get, $"https://api.curseforge.com/v1/mods/{projectId}"); request.Headers.Add("x-api-key", apiKey);
+        using var response = await Client.SendAsync(request, token); response.EnsureSuccessStatusCode(); using var document = JsonDocument.Parse(await response.Content.ReadAsStreamAsync(token)); var root = document.RootElement.GetProperty("data");
+        return new FavoriteMod { Source = "CurseForge", ProjectId = projectId, Slug = root.GetProperty("slug").GetString() ?? "", Name = root.GetProperty("name").GetString() ?? projectId, Description = root.TryGetProperty("summary", out var summary) ? summary.GetString() ?? "" : "", IconUrl = root.TryGetProperty("logo", out var logo) && logo.ValueKind == JsonValueKind.Object && logo.TryGetProperty("thumbnailUrl", out var icon) ? icon.GetString() ?? "" : "" };
+    }
+
     public static async Task DownloadAsync(ModDownloadVersion version, string targetPath, CancellationToken token)
     {
         using var response = await Client.GetAsync(version.DownloadUrl, HttpCompletionOption.ResponseHeadersRead, token); response.EnsureSuccessStatusCode();
@@ -195,5 +269,30 @@ public static class ModMarketplaceService
             File.Copy(targetPath, backup, true);
         }
         File.Move(temporary, targetPath, true);
+    }
+
+    public static async Task<List<string>> InspectJarRequiredDependenciesAsync(ModDownloadVersion version, CancellationToken token)
+    {
+        using var response = await Client.GetAsync(version.DownloadUrl, token); response.EnsureSuccessStatusCode();
+        await using var source = await response.Content.ReadAsStreamAsync(token); using var memory = new MemoryStream(); await source.CopyToAsync(memory, token); memory.Position = 0;
+        using var archive = new ZipArchive(memory, ZipArchiveMode.Read); var required = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var fabric = archive.GetEntry("fabric.mod.json");
+        if (fabric != null)
+        {
+            await using var stream = fabric.Open(); using var document = await JsonDocument.ParseAsync(stream, cancellationToken: token);
+            if (document.RootElement.TryGetProperty("depends", out var depends) && depends.ValueKind == JsonValueKind.Object)
+                foreach (var dependency in depends.EnumerateObject()) required.Add(dependency.Name);
+        }
+        foreach (var path in new[] { "META-INF/mods.toml", "META-INF/neoforge.mods.toml" })
+        {
+            var entry = archive.GetEntry(path); if (entry == null) continue; using var reader = new StreamReader(entry.Open()); var toml = await reader.ReadToEndAsync(token);
+            foreach (Match section in Regex.Matches(toml, @"\[\[dependencies\.[^\]]+\]\](?<body>.*?)(?=\[\[dependencies\.|\z)", RegexOptions.Singleline | RegexOptions.IgnoreCase))
+            {
+                var body = section.Groups["body"].Value; var id = Regex.Match(body, @"modId\s*=\s*[""'](?<id>[^""']+)", RegexOptions.IgnoreCase);
+                var mandatory = Regex.IsMatch(body, @"mandatory\s*=\s*true", RegexOptions.IgnoreCase) || Regex.IsMatch(body, @"type\s*=\s*[""']required[""']", RegexOptions.IgnoreCase);
+                if (mandatory && id.Success) required.Add(id.Groups["id"].Value);
+            }
+        }
+        required.ExceptWith(new[] { "minecraft", "java", "fabricloader", "forge", "neoforge", "quilt_loader" }); return required.Order().ToList();
     }
 }

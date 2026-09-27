@@ -275,8 +275,45 @@ public partial class MainWindow
         {
             var selected = selections.Where(item => item.Check.IsChecked == true && item.Versions.SelectedItem is ModDownloadVersion).ToList(); if (selected.Count == 0) { status.Text = "请至少勾选一个有可用版本的 Mod"; return; }
             install.IsEnabled = false; var installed = 0;
-            try { foreach (var item in selected) { var chosen = (ModDownloadVersion)item.Versions.SelectedItem; var safeFileName = Path.GetFileName(chosen.FileName); if (!safeFileName.EndsWith(".jar", StringComparison.OrdinalIgnoreCase)) throw new InvalidDataException($"{item.Mod.Name} 返回的文件不是 Mod JAR：{safeFileName}"); status.Text = $"正在下载 {item.Mod.Name}：{chosen.VersionNumber}"; await ModMarketplaceService.DownloadAsync(chosen, Path.Combine(instance, "mods", safeFileName), CancellationToken.None); installed++; } status.Text = $"已安装 {installed} 个 Mod"; LoadInstance(); RefreshFavoriteModStatus(); AppDialog.Show(dialog, $"已安装 {installed} 个 Mod。请重启 Minecraft。", "安装完成", MessageBoxButton.OK, MessageBoxImage.Information); dialog.Close(); } catch (Exception ex) { status.Text = "安装失败：" + ex.Message; install.IsEnabled = true; }
+            try
+            {
+                var version = versionBox.SelectedItem as string ?? currentVersion; var loader = loaderBox.SelectedItem as string ?? "Fabric";
+                status.Text = "正在审查必需前置…";
+                var roots = selected.Select(item => (item.Mod, (ModDownloadVersion)item.Versions.SelectedItem)).ToList();
+                var dependencies = await ModMarketplaceService.ResolveRequiredDependenciesAsync(roots, version, loader, settings.CurseForgeApiKey, CancellationToken.None);
+                var missingDependencies = dependencies.Where(item => !IsFavoriteInstalled(item.Mod)).ToList();
+                var githubCount = roots.Count(item => item.Mod.Source == "GitHub");
+                var githubMissing = new List<string>();
+                foreach (var github in roots.Where(item => item.Mod.Source == "GitHub"))
+                {
+                    try
+                    {
+                        var declared = await ModMarketplaceService.InspectJarRequiredDependenciesAsync(github.Item2, CancellationToken.None);
+                        foreach (var id in declared)
+                        {
+                            var normalized = NormalizeFavoriteToken(id); var present = mods.Keys.Any(key => NormalizeFavoriteToken(key).Contains(normalized) || normalized.Contains(NormalizeFavoriteToken(key))) || roots.Any(item => NormalizeFavoriteToken(item.Mod.Slug).Contains(normalized) || normalized.Contains(NormalizeFavoriteToken(item.Mod.Slug)));
+                            if (!present) githubMissing.Add($"{github.Mod.Name} → {id}");
+                        }
+                    }
+                    catch (Exception ex) { githubMissing.Add($"{github.Mod.Name} → 无法读取 JAR 元数据：{ex.Message}"); }
+                }
+                var review = missingDependencies.Count == 0 ? "未发现缺失的结构化必需前置。" : "将同时安装以下必需前置：\n\n" + string.Join("\n", missingDependencies.Select(item => $"• {GetLocalizedMarketplaceName(item.Mod.Slug, item.Mod.Name)}  {item.Version.VersionNumber}\n  由 {item.RequiredBy} 需要"));
+                if (githubCount > 0 && githubMissing.Count == 0) review += $"\n\n已读取 {githubCount} 个 GitHub JAR 的 Fabric/Forge/NeoForge 元数据，未发现缺失的已声明必需前置。";
+                if (githubMissing.Count > 0) review += "\n\nGitHub JAR 中发现以下未解析前置，软件无法从 GitHub 自动确定其下载项目，请先确认：\n" + string.Join("\n", githubMissing.Select(item => "• " + item));
+                review += "\n\n是否继续下载？";
+                if (AppDialog.Show(dialog, review, "前置 Mod 审查", MessageBoxButton.YesNo, missingDependencies.Count > 0 || githubMissing.Count > 0 ? MessageBoxImage.Warning : MessageBoxImage.Information) != MessageBoxResult.Yes) { install.IsEnabled = true; status.Text = "已取消安装"; return; }
+                foreach (var dependency in missingDependencies) { status.Text = $"正在安装前置 {dependency.Mod.Name}：{dependency.Version.VersionNumber}"; await InstallModVersionAsync(dependency.Mod.Name, dependency.Version); installed++; }
+                foreach (var item in roots) { status.Text = $"正在下载 {item.Mod.Name}：{item.Item2.VersionNumber}"; await InstallModVersionAsync(item.Mod.Name, item.Item2); installed++; }
+                status.Text = $"已安装 {installed} 个 Mod"; LoadInstance(); RefreshFavoriteModStatus(); AppDialog.Show(dialog, $"已安装 {installed} 个 Mod（含 {missingDependencies.Count} 个前置）。请重启 Minecraft。", "安装完成", MessageBoxButton.OK, MessageBoxImage.Information); dialog.Close();
+            }
+            catch (Exception ex) { status.Text = "安装失败：" + ex.Message; install.IsEnabled = true; }
         }; buttons.Children.Add(refresh); buttons.Children.Add(cancel); buttons.Children.Add(install); DockPanel.SetDock(buttons, Dock.Right); bottom.Children.Add(buttons); Grid.SetRow(bottom, 2); root.Children.Add(bottom); AppDialog.SetBody(dialog, root);
         dialog.Loaded += async (_, _) => await LoadRowsAsync(); dialog.ShowDialog();
+    }
+
+    private async Task InstallModVersionAsync(string name, ModDownloadVersion chosen)
+    {
+        var safeFileName = Path.GetFileName(chosen.FileName); if (!safeFileName.EndsWith(".jar", StringComparison.OrdinalIgnoreCase)) throw new InvalidDataException($"{name} 返回的文件不是 Mod JAR：{safeFileName}");
+        await ModMarketplaceService.DownloadAsync(chosen, Path.Combine(instance, "mods", safeFileName), CancellationToken.None);
     }
 }

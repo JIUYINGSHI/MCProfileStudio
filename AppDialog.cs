@@ -17,7 +17,8 @@ internal static class AppDialog
     public static MessageBoxResult Show(Window? owner, string message, string title = "提示", MessageBoxButton buttons = MessageBoxButton.OK, MessageBoxImage image = MessageBoxImage.None)
     {
         var result = buttons == MessageBoxButton.YesNo ? MessageBoxResult.No : buttons == MessageBoxButton.OK ? MessageBoxResult.OK : MessageBoxResult.Cancel;
-        var dialog = CreateWindow(owner, title, 520, 260, false);
+        var estimatedLines = message.Split('\n').Sum(line => Math.Max(1, (line.Length + 43) / 44));
+        var dialog = CreateWindow(owner, title, 620, Math.Clamp(230 + estimatedLines * 20, 300, 680), false);
         var body = new Grid { Margin = new Thickness(24, 20, 24, 22) };
         body.RowDefinitions.Add(new RowDefinition());
         body.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
@@ -36,7 +37,8 @@ internal static class AppDialog
             Child = new TextBlock { Text = symbol, Foreground = new SolidColorBrush(color), FontSize = 21, FontWeight = FontWeights.Bold, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center }
         });
         var text = new TextBlock { Text = message, Foreground = Brushes.White, FontSize = 14, TextWrapping = TextWrapping.Wrap, VerticalAlignment = VerticalAlignment.Center, LineHeight = 22 };
-        Grid.SetColumn(text, 1); messageRow.Children.Add(text); body.Children.Add(messageRow);
+        var messageScroll = new ScrollViewer { Content = text, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, MaxHeight = 500 };
+        Grid.SetColumn(messageScroll, 1); messageRow.Children.Add(messageScroll); body.Children.Add(messageRow);
 
         var actions = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 22, 0, 0) };
         void AddButton(string label, MessageBoxResult value, bool primary = false)

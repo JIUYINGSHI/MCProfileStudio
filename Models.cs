@@ -108,6 +108,13 @@ public class ModDownloadVersion
     public override string ToString() => $"{DisplayName}  ·  {FileName}";
 }
 
+public class ResolvedModDependency
+{
+    public required FavoriteMod Mod { get; init; }
+    public required ModDownloadVersion Version { get; init; }
+    public string RequiredBy { get; init; } = "";
+}
+
 public class PackProfile
 {
     public List<string> PackOrder { get; set; } = [];
