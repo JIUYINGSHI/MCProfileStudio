@@ -65,6 +65,13 @@ public class AppSettings
     public string PreferredModLoader { get; set; } = "";
     public string PreferredModSource { get; set; } = "全部";
     public string LastModSearchQuery { get; set; } = "";
+    public string ActiveFavoriteModProfile { get; set; } = "默认收藏";
+    public Dictionary<string, FavoriteModProfile> FavoriteModProfiles { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+}
+
+public class FavoriteModProfile
+{
+    public List<FavoriteMod> Mods { get; set; } = [];
 }
 
 public class FavoriteMod
