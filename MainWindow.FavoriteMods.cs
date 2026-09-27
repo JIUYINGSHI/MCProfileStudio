@@ -4,6 +4,7 @@ using System.Text.RegularExpressions;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
+using System.Windows.Media.Imaging;
 
 namespace McProfileStudio;
 
@@ -12,7 +13,6 @@ public partial class MainWindow
     private Grid? favoriteModsPage;
     private TextBox? modSearchBox;
     private ComboBox? marketplaceVersionCombo, marketplaceLoaderCombo, marketplaceSourceCombo;
-    private PasswordBox? curseForgeKeyBox;
     private StackPanel? marketplaceResults, favoriteModsList, favoriteStatusList;
     private TextBlock? marketplaceStatus, favoriteHomeSummary;
     private CancellationTokenSource? marketplaceSearchCancellation;
@@ -29,18 +29,19 @@ public partial class MainWindow
         var left = MakeFavoriteCard(new Thickness(0, 0, 10, 14)); var leftGrid = new Grid(); leftGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto }); leftGrid.RowDefinitions.Add(new RowDefinition());
         var searchPanel = new StackPanel(); searchPanel.Children.Add(new TextBlock { Text = "搜索并收藏 Mod", Foreground = Brushes.White, FontSize = 19, FontWeight = FontWeights.SemiBold });
         searchPanel.Children.Add(new TextBlock { Text = "版本与加载器会随导入实例自动识别，也可以在这里手动修改。", Foreground = new SolidColorBrush(Color.FromRgb(166, 185, 203)), Margin = new Thickness(0, 5, 0, 10) });
-        modSearchBox = new TextBox { ToolTip = "输入 Mod 名称，例如 Tweakeroo" }; searchPanel.Children.Add(modSearchBox);
+        modSearchBox = new TextBox { Text = settings.LastModSearchQuery, ToolTip = "输入中文名或英文名，例如 投影 / Litematica；按 Enter 直接搜索" }; modSearchBox.KeyDown += (_, e) => { if (e.Key == System.Windows.Input.Key.Enter) { SearchMarketplace_Click(modSearchBox, new RoutedEventArgs()); e.Handled = true; } }; searchPanel.Children.Add(modSearchBox);
         var filters = new Grid { Margin = new Thickness(0, 8, 0, 8) }; for (var i = 0; i < 3; i++) filters.ColumnDefinitions.Add(new ColumnDefinition());
-        marketplaceVersionCombo = new ComboBox { IsEditable = true, ItemsSource = CommonMinecraftVersions, Margin = new Thickness(0, 0, 6, 0), ToolTip = "Minecraft 版本" };
+        marketplaceVersionCombo = new ComboBox { ItemsSource = CommonMinecraftVersions, Margin = new Thickness(0, 0, 6, 0), ToolTip = "Minecraft 版本" };
         marketplaceLoaderCombo = new ComboBox { ItemsSource = SupportedLoaders, Margin = new Thickness(3, 0, 3, 0), ToolTip = "Mod 加载器" };
-        marketplaceSourceCombo = new ComboBox { ItemsSource = new[] { "全部", "Modrinth", "CurseForge" }, SelectedIndex = 0, Margin = new Thickness(6, 0, 0, 0), ToolTip = "下载来源" };
+        marketplaceSourceCombo = new ComboBox { ItemsSource = new[] { "全部", "Modrinth", "CurseForge" }, SelectedItem = new[] { "全部", "Modrinth", "CurseForge" }.Contains(settings.PreferredModSource) ? settings.PreferredModSource : "全部", Margin = new Thickness(6, 0, 0, 0), ToolTip = "下载来源" };
+        marketplaceVersionCombo.SelectionChanged += (_, _) => SaveMarketplacePreferences(); marketplaceLoaderCombo.SelectionChanged += (_, _) => SaveMarketplacePreferences(); marketplaceSourceCombo.SelectionChanged += (_, _) => SaveMarketplacePreferences(); modSearchBox.LostKeyboardFocus += (_, _) => SaveMarketplacePreferences();
         Grid.SetColumn(marketplaceLoaderCombo, 1); Grid.SetColumn(marketplaceSourceCombo, 2); filters.Children.Add(marketplaceVersionCombo); filters.Children.Add(marketplaceLoaderCombo); filters.Children.Add(marketplaceSourceCombo); searchPanel.Children.Add(filters);
         var searchButtons = new WrapPanel(); var search = new Button { Content = "搜索 Mod", MinWidth = 120 }; search.Click += SearchMarketplace_Click; var detect = new Button { Content = "重新识别实例环境", Background = new SolidColorBrush(Color.FromRgb(56, 71, 86)), Margin = new Thickness(8, 0, 0, 0) }; detect.Click += (_, _) => { DetectAndSelectInstanceEnvironment(true); RefreshFavoriteModStatus(); }; searchButtons.Children.Add(search); searchButtons.Children.Add(detect); searchPanel.Children.Add(searchButtons);
         marketplaceStatus = new TextBlock { Foreground = new SolidColorBrush(Color.FromRgb(103, 190, 245)), Margin = new Thickness(0, 8, 0, 0), TextWrapping = TextWrapping.Wrap }; searchPanel.Children.Add(marketplaceStatus); Grid.SetRow(searchPanel, 0); leftGrid.Children.Add(searchPanel);
         marketplaceResults = new StackPanel(); var resultScroll = new ScrollViewer { Content = marketplaceResults, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, Margin = new Thickness(0, 12, 0, 0) }; Grid.SetRow(resultScroll, 1); leftGrid.Children.Add(resultScroll); left.Child = leftGrid; favoriteModsPage.Children.Add(left);
 
         var right = MakeFavoriteCard(new Thickness(10, 0, 0, 14)); var rightDock = new DockPanel(); var favoriteHeader = new StackPanel(); favoriteHeader.Children.Add(new TextBlock { Text = "已收藏的 Mod", Foreground = Brushes.White, FontSize = 19, FontWeight = FontWeights.SemiBold }); favoriteHeader.Children.Add(new TextBlock { Text = "收藏针对项目本身，不绑定单一 Minecraft 版本。", Foreground = new SolidColorBrush(Color.FromRgb(166, 185, 203)), TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 5, 0, 10) });
-        curseForgeKeyBox = new PasswordBox { Password = settings.CurseForgeApiKey, ToolTip = "CurseForge 官方 API Key（仅保存在本机设置）" }; favoriteHeader.Children.Add(curseForgeKeyBox); var saveKey = new Button { Content = "保存 CurseForge API Key", Margin = new Thickness(0, 7, 0, 10), Background = new SolidColorBrush(Color.FromRgb(56, 71, 86)) }; saveKey.Click += (_, _) => { settings.CurseForgeApiKey = curseForgeKeyBox.Password.Trim(); SettingsStore.Save(settings); marketplaceStatus!.Text = "已保存 CurseForge API Key"; }; favoriteHeader.Children.Add(saveKey); DockPanel.SetDock(favoriteHeader, Dock.Top); rightDock.Children.Add(favoriteHeader);
+        DockPanel.SetDock(favoriteHeader, Dock.Top); rightDock.Children.Add(favoriteHeader);
         favoriteModsList = new StackPanel(); rightDock.Children.Add(new ScrollViewer { Content = favoriteModsList, VerticalScrollBarVisibility = ScrollBarVisibility.Auto }); right.Child = rightDock; Grid.SetColumn(right, 1); favoriteModsPage.Children.Add(right);
         host.Children.Add(favoriteModsPage); BuildFavoriteHomeCard(); RefreshFavoriteList(); DetectAndSelectInstanceEnvironment(); RefreshFavoriteModStatus();
     }
@@ -52,31 +53,58 @@ public partial class MainWindow
         if (HomePage.Children.OfType<StackPanel>().FirstOrDefault() is not { } home) return;
         var card = MakeFavoriteCard(new Thickness(0, 0, 0, 14)); var panel = new StackPanel(); panel.Children.Add(new TextBlock { Text = "收藏 Mod 检测", Foreground = Brushes.White, FontSize = 18, FontWeight = FontWeights.SemiBold });
         favoriteHomeSummary = new TextBlock { Foreground = new SolidColorBrush(Color.FromRgb(186, 199, 216)), Margin = new Thickness(0, 7, 0, 8), TextWrapping = TextWrapping.Wrap }; panel.Children.Add(favoriteHomeSummary);
-        favoriteStatusList = new StackPanel(); panel.Children.Add(new ScrollViewer { Content = favoriteStatusList, MaxHeight = 130, VerticalScrollBarVisibility = ScrollBarVisibility.Auto }); var download = new Button { Content = "检查并选择要下载的 Mod", HorizontalAlignment = HorizontalAlignment.Left, Margin = new Thickness(0, 10, 0, 0) }; download.Click += OpenFavoriteDownloadDialog_Click; panel.Children.Add(download); card.Child = panel;
+        favoriteStatusList = new StackPanel(); panel.Children.Add(new ScrollViewer { Content = favoriteStatusList, MaxHeight = 130, VerticalScrollBarVisibility = ScrollBarVisibility.Auto }); var actions = new WrapPanel { Margin = new Thickness(0, 10, 0, 0) }; var download = new Button { Content = "检查并选择要下载的 Mod", Margin = new Thickness(0, 0, 8, 0) }; download.Click += OpenFavoriteDownloadDialog_Click; var apiSettings = new Button { Content = "下载源设置", Background = new SolidColorBrush(Color.FromRgb(56, 71, 86)) }; apiSettings.Click += ConfigureMarketplace_Click; actions.Children.Add(download); actions.Children.Add(apiSettings); panel.Children.Add(actions); card.Child = panel;
         home.Children.Insert(Math.Min(2, home.Children.Count), card);
+    }
+
+    private void ConfigureMarketplace_Click(object sender, RoutedEventArgs e)
+    {
+        var dialog = new Window { Owner = this, Title = "下载源设置", Width = 520, Height = 290, ResizeMode = ResizeMode.NoResize, WindowStartupLocation = WindowStartupLocation.CenterOwner, Background = new SolidColorBrush(Color.FromRgb(14, 22, 31)), Foreground = Brushes.White, FontFamily = (FontFamily)Application.Current.Resources["AppFont"] };
+        var root = new StackPanel { Margin = new Thickness(24) }; root.Children.Add(new TextBlock { Text = "CurseForge API Key", FontSize = 20, FontWeight = FontWeights.SemiBold }); root.Children.Add(new TextBlock { Text = "CurseForge 官方接口要求调用方提供 API Key。密钥只保存在本机设置中；Modrinth 无需密钥。", Foreground = new SolidColorBrush(Color.FromRgb(174, 190, 207)), TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 7, 0, 14) });
+        var keyBox = new PasswordBox { Password = settings.CurseForgeApiKey }; root.Children.Add(keyBox); var buttons = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 18, 0, 0) }; var clear = new Button { Content = "清除 Key", Background = new SolidColorBrush(Color.FromRgb(112, 48, 56)), Margin = new Thickness(0, 0, 8, 0) }; clear.Click += (_, _) => keyBox.Password = ""; var cancel = new Button { Content = "取消", Background = new SolidColorBrush(Color.FromRgb(56, 71, 86)), Margin = new Thickness(0, 0, 8, 0) }; cancel.Click += (_, _) => dialog.DialogResult = false; var save = new Button { Content = "保存" }; save.Click += (_, _) => dialog.DialogResult = true; buttons.Children.Add(clear); buttons.Children.Add(cancel); buttons.Children.Add(save); root.Children.Add(buttons); dialog.Content = root;
+        if (dialog.ShowDialog() == true) { settings.CurseForgeApiKey = keyBox.Password.Trim(); SettingsStore.Save(settings); StatusText.Text = string.IsNullOrWhiteSpace(settings.CurseForgeApiKey) ? "已清除 CurseForge API Key" : "已保存 CurseForge API Key"; }
     }
 
     private async void SearchMarketplace_Click(object sender, RoutedEventArgs e)
     {
-        var version = marketplaceVersionCombo?.Text.Trim() ?? ""; var loader = marketplaceLoaderCombo?.SelectedItem as string ?? "Fabric"; var source = marketplaceSourceCombo?.SelectedItem as string ?? "全部";
+        var version = marketplaceVersionCombo?.SelectedItem as string ?? ""; var loader = marketplaceLoaderCombo?.SelectedItem as string ?? "Fabric"; var source = marketplaceSourceCombo?.SelectedItem as string ?? "全部";
         if (string.IsNullOrWhiteSpace(version)) { marketplaceStatus!.Text = "请先选择或输入 Minecraft 版本"; return; }
-        settings.PreferredMinecraftVersion = version; settings.PreferredModLoader = loader; settings.CurseForgeApiKey = curseForgeKeyBox?.Password.Trim() ?? settings.CurseForgeApiKey; SettingsStore.Save(settings);
+        settings.PreferredMinecraftVersion = version; settings.PreferredModLoader = loader; settings.PreferredModSource = source; settings.LastModSearchQuery = modSearchBox?.Text.Trim() ?? ""; SettingsStore.Save(settings);
         marketplaceSearchCancellation?.Cancel(); marketplaceSearchCancellation = new CancellationTokenSource(); marketplaceStatus!.Text = "正在搜索…"; marketplaceResults!.Children.Clear();
         try
         {
-            var results = await ModMarketplaceService.SearchAsync(modSearchBox?.Text.Trim() ?? "", version, loader, source, settings.CurseForgeApiKey, marketplaceSearchCancellation.Token);
+            var rawQuery = modSearchBox?.Text.Trim() ?? ""; var queries = ModNameLocalization.ContainsChinese(rawQuery) ? ModNameLocalization.FindSlugsByChinese(rawQuery).ToList() : [rawQuery]; if (queries.Count == 0) queries.Add(rawQuery);
+            var batches = await Task.WhenAll(queries.Select(query => ModMarketplaceService.SearchAsync(query, version, loader, source, settings.CurseForgeApiKey, marketplaceSearchCancellation.Token)));
+            var results = batches.SelectMany(batch => batch).DistinctBy(item => item.Source + ":" + item.ProjectId).OrderByDescending(item => item.Downloads).ToList();
             foreach (var result in results) marketplaceResults.Children.Add(BuildMarketplaceResult(result));
             marketplaceStatus.Text = $"找到 {results.Count} 个兼容 {version} / {loader} 的 Mod" + (source == "全部" && string.IsNullOrWhiteSpace(settings.CurseForgeApiKey) ? "；未设置 CurseForge Key，本次仅搜索 Modrinth" : "");
         }
         catch (Exception ex) { marketplaceStatus.Text = "搜索失败：" + ex.Message; }
     }
 
+    private void SaveMarketplacePreferences()
+    {
+        if (marketplaceVersionCombo?.SelectedItem is string version) settings.PreferredMinecraftVersion = version;
+        if (marketplaceLoaderCombo?.SelectedItem is string loader) settings.PreferredModLoader = loader;
+        if (marketplaceSourceCombo?.SelectedItem is string source) settings.PreferredModSource = source;
+        if (modSearchBox != null) settings.LastModSearchQuery = modSearchBox.Text.Trim();
+        SettingsStore.Save(settings);
+    }
+
     private Border BuildMarketplaceResult(ModSearchResult result)
     {
         var card = new Border { Background = new SolidColorBrush(Color.FromArgb(70, 29, 42, 55)), CornerRadius = new CornerRadius(10), Padding = new Thickness(12), Margin = new Thickness(0, 0, 0, 8) };
-        var grid = new Grid(); grid.ColumnDefinitions.Add(new ColumnDefinition()); grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-        var text = new StackPanel(); text.Children.Add(new TextBlock { Text = GetLocalizedMarketplaceName(result.Slug, result.Name), Foreground = Brushes.White, FontSize = 15, FontWeight = FontWeights.SemiBold }); text.Children.Add(new TextBlock { Text = result.Description, Foreground = new SolidColorBrush(Color.FromRgb(174, 190, 207)), TextWrapping = TextWrapping.Wrap, MaxHeight = 42 }); text.Children.Add(new TextBlock { Text = $"{result.Source}  ·  {result.Downloads:N0} 次下载", Foreground = new SolidColorBrush(Color.FromRgb(103, 190, 245)), Margin = new Thickness(0, 5, 0, 0) }); grid.Children.Add(text);
-        var exists = settings.FavoriteMods.Any(item => item.Source == result.Source && item.ProjectId == result.ProjectId); var button = new Button { Content = exists ? "已收藏" : "收藏", IsEnabled = !exists, Margin = new Thickness(10, 0, 0, 0), MinWidth = 78, Tag = result }; button.Click += FavoriteSearchResult_Click; Grid.SetColumn(button, 1); grid.Children.Add(button); card.Child = grid; return card;
+        var grid = new Grid(); grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(58) }); grid.ColumnDefinitions.Add(new ColumnDefinition()); grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        var icon = new Border { Width = 48, Height = 48, CornerRadius = new CornerRadius(8), Background = new SolidColorBrush(Color.FromRgb(42, 58, 72)), ClipToBounds = true, VerticalAlignment = VerticalAlignment.Top };
+        if (TryCreateRemoteImage(result.IconUrl) is { } image) icon.Child = image; else icon.Child = new TextBlock { Text = "MOD", Foreground = new SolidColorBrush(Color.FromRgb(103, 190, 245)), HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center, FontSize = 10 };
+        grid.Children.Add(icon); var text = new StackPanel(); text.Children.Add(new TextBlock { Text = GetLocalizedMarketplaceName(result.Slug, result.Name), Foreground = Brushes.White, FontSize = 15, FontWeight = FontWeights.SemiBold }); text.Children.Add(new TextBlock { Text = result.Description, Foreground = new SolidColorBrush(Color.FromRgb(174, 190, 207)), TextWrapping = TextWrapping.Wrap, MaxHeight = 42 }); text.Children.Add(new TextBlock { Text = $"{result.Source}  ·  {result.Downloads:N0} 次下载", Foreground = new SolidColorBrush(Color.FromRgb(103, 190, 245)), Margin = new Thickness(0, 5, 0, 0) }); Grid.SetColumn(text, 1); grid.Children.Add(text);
+        var exists = settings.FavoriteMods.Any(item => item.Source == result.Source && item.ProjectId == result.ProjectId); var button = new Button { Content = exists ? "已收藏" : "收藏", IsEnabled = !exists, Margin = new Thickness(10, 0, 0, 0), MinWidth = 78, Tag = result }; button.Click += FavoriteSearchResult_Click; Grid.SetColumn(button, 2); grid.Children.Add(button); card.Child = grid; return card;
+    }
+
+    private static Image? TryCreateRemoteImage(string url)
+    {
+        if (!Uri.TryCreate(url, UriKind.Absolute, out var uri) || uri.Scheme != Uri.UriSchemeHttps) return null;
+        try { var bitmap = new BitmapImage(); bitmap.BeginInit(); bitmap.UriSource = uri; bitmap.CacheOption = BitmapCacheOption.OnDemand; bitmap.DecodePixelWidth = 96; bitmap.EndInit(); return new Image { Source = bitmap, Stretch = Stretch.UniformToFill }; } catch { return null; }
     }
 
     private void FavoriteSearchResult_Click(object sender, RoutedEventArgs e)
@@ -110,14 +138,15 @@ public partial class MainWindow
     private void RefreshFavoriteModStatus()
     {
         if (favoriteStatusList == null) return; favoriteStatusList.Children.Clear(); var missing = settings.FavoriteMods.Where(item => !IsFavoriteInstalled(item)).ToList(); var installed = settings.FavoriteMods.Count - missing.Count;
-        favoriteHomeSummary!.Text = string.IsNullOrWhiteSpace(instance) ? $"已收藏 {settings.FavoriteMods.Count} 个 Mod；导入实例后检查缺失情况。" : $"当前实例：已安装 {installed} 个，缺少 {missing.Count} 个收藏 Mod。";
+        var selectedVersion = marketplaceVersionCombo?.SelectedItem as string ?? "未识别"; var selectedLoader = marketplaceLoaderCombo?.SelectedItem as string ?? "未识别";
+        favoriteHomeSummary!.Text = string.IsNullOrWhiteSpace(instance) ? $"已收藏 {settings.FavoriteMods.Count} 个 Mod；导入实例后检查缺失情况。" : $"当前实例：Minecraft {selectedVersion} / {selectedLoader}；已安装 {installed} 个，缺少 {missing.Count} 个收藏 Mod。";
         foreach (var favorite in settings.FavoriteMods) favoriteStatusList.Children.Add(new TextBlock { Text = $"{(IsFavoriteInstalled(favorite) ? "✓" : "○")}  {GetLocalizedMarketplaceName(favorite.Slug, favorite.Name)}  ·  {(IsFavoriteInstalled(favorite) ? "已安装" : "缺失")}", Foreground = IsFavoriteInstalled(favorite) ? new SolidColorBrush(Color.FromRgb(113, 211, 151)) : new SolidColorBrush(Color.FromRgb(255, 190, 105)), Margin = new Thickness(0, 2, 0, 2) });
     }
 
     private void DetectAndSelectInstanceEnvironment(bool forceDetected = false)
     {
         var detected = DetectInstanceEnvironment(); var version = !forceDetected && !string.IsNullOrWhiteSpace(settings.PreferredMinecraftVersion) ? settings.PreferredMinecraftVersion : detected.Version; var loader = !forceDetected && !string.IsNullOrWhiteSpace(settings.PreferredModLoader) ? settings.PreferredModLoader : detected.Loader;
-        if (marketplaceVersionCombo != null) marketplaceVersionCombo.Text = string.IsNullOrWhiteSpace(version) ? CommonMinecraftVersions[0] : version;
+        if (marketplaceVersionCombo != null) { var selectedVersion = string.IsNullOrWhiteSpace(version) ? CommonMinecraftVersions[0] : version; marketplaceVersionCombo.ItemsSource = CommonMinecraftVersions.Prepend(selectedVersion).Distinct().ToList(); marketplaceVersionCombo.SelectedItem = selectedVersion; }
         if (marketplaceLoaderCombo != null) marketplaceLoaderCombo.SelectedItem = SupportedLoaders.Contains(loader, StringComparer.OrdinalIgnoreCase) ? SupportedLoaders.First(item => item.Equals(loader, StringComparison.OrdinalIgnoreCase)) : "Fabric";
         if (marketplaceStatus != null && !string.IsNullOrWhiteSpace(instance)) marketplaceStatus.Text = $"实例识别：Minecraft {detected.Version} / {detected.Loader}；可手动修改";
     }
@@ -127,12 +156,18 @@ public partial class MainWindow
         var version = ""; var loader = "";
         if (!string.IsNullOrWhiteSpace(instance) && Directory.Exists(instance))
         {
-            foreach (var file in Directory.EnumerateFiles(instance, "*.json", SearchOption.TopDirectoryOnly).Take(20))
+            var versionJson = Path.Combine(instance, Path.GetFileName(instance) + ".json");
+            var candidates = File.Exists(versionJson) ? new[] { versionJson } : Directory.EnumerateFiles(instance, "*.json", SearchOption.TopDirectoryOnly).Where(file => Path.GetFileNameWithoutExtension(file).Equals(Path.GetFileName(instance), StringComparison.OrdinalIgnoreCase)).Take(1);
+            foreach (var file in candidates)
             {
                 try
                 {
                     var text = File.ReadAllText(file); using var document = JsonDocument.Parse(text); var root = document.RootElement;
-                    foreach (var property in new[] { "inheritsFrom", "id" }) if (root.TryGetProperty(property, out var value) && value.ValueKind == JsonValueKind.String) { var match = Regex.Match(value.GetString() ?? "", @"(?<!\d)(1\.\d+(?:\.\d+)?)(?!\d)"); if (match.Success) version = match.Groups[1].Value; }
+                    foreach (var property in new[] { "clientVersion", "minecraftVersion", "inheritsFrom" }) if (string.IsNullOrWhiteSpace(version) && root.TryGetProperty(property, out var value) && value.ValueKind == JsonValueKind.String) { var match = Regex.Match(value.GetString() ?? "", @"(?<!\d)(1\.\d+(?:\.\d+)?)(?!\d)"); if (match.Success) version = match.Groups[1].Value; }
+                    if (string.IsNullOrWhiteSpace(version) && root.TryGetProperty("arguments", out var arguments) && arguments.TryGetProperty("game", out var game) && game.ValueKind == JsonValueKind.Array)
+                    {
+                        var values = game.EnumerateArray().Where(item => item.ValueKind == JsonValueKind.String).Select(item => item.GetString() ?? "").ToList(); var index = values.FindIndex(item => item == "--fml.mcVersion"); if (index >= 0 && index + 1 < values.Count) version = values[index + 1];
+                    }
                     var lower = text.ToLowerInvariant(); if (lower.Contains("neoforge")) loader = "NeoForge"; else if (lower.Contains("fabric-loader") || lower.Contains("fabricloader")) loader = "Fabric"; else if (lower.Contains("quilt_loader") || lower.Contains("quilt-loader")) loader = "Quilt"; else if (lower.Contains("net.minecraftforge") || lower.Contains("forge:")) loader = "Forge";
                 }
                 catch { }
@@ -154,11 +189,11 @@ public partial class MainWindow
     {
         var dialog = new Window { Owner = this, Title = "选择要安装的收藏 Mod", Width = 920, Height = 680, MinWidth = 760, MinHeight = 520, WindowStartupLocation = WindowStartupLocation.CenterOwner, Background = new SolidColorBrush(Color.FromRgb(14, 22, 31)), Foreground = Brushes.White, FontFamily = (FontFamily)Application.Current.Resources["AppFont"] };
         var root = new Grid { Margin = new Thickness(20) }; root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto }); root.RowDefinitions.Add(new RowDefinition()); root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-        var top = new Grid(); top.ColumnDefinitions.Add(new ColumnDefinition()); top.ColumnDefinitions.Add(new ColumnDefinition()); var versionBox = new ComboBox { IsEditable = true, ItemsSource = CommonMinecraftVersions, Text = marketplaceVersionCombo?.Text ?? "", Margin = new Thickness(0, 0, 6, 0) }; var loaderBox = new ComboBox { ItemsSource = SupportedLoaders, SelectedItem = marketplaceLoaderCombo?.SelectedItem ?? "Fabric", Margin = new Thickness(6, 0, 0, 0) }; Grid.SetColumn(loaderBox, 1); top.Children.Add(versionBox); top.Children.Add(loaderBox); root.Children.Add(top);
+        var currentVersion = marketplaceVersionCombo?.SelectedItem as string ?? CommonMinecraftVersions[0]; var top = new Grid(); top.ColumnDefinitions.Add(new ColumnDefinition()); top.ColumnDefinitions.Add(new ColumnDefinition()); var versionBox = new ComboBox { ItemsSource = CommonMinecraftVersions.Prepend(currentVersion).Distinct().ToList(), SelectedItem = currentVersion, Margin = new Thickness(0, 0, 6, 0) }; var loaderBox = new ComboBox { ItemsSource = SupportedLoaders, SelectedItem = marketplaceLoaderCombo?.SelectedItem ?? "Fabric", Margin = new Thickness(6, 0, 0, 0) }; Grid.SetColumn(loaderBox, 1); top.Children.Add(versionBox); top.Children.Add(loaderBox); root.Children.Add(top);
         var rows = new StackPanel(); var scroll = new ScrollViewer { Content = rows, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, Margin = new Thickness(0, 14, 0, 14) }; Grid.SetRow(scroll, 1); root.Children.Add(scroll); var selections = new List<(FavoriteMod Mod, CheckBox Check, ComboBox Versions)>();
         async Task LoadRowsAsync()
         {
-            rows.Children.Clear(); selections.Clear(); var version = versionBox.Text.Trim(); var loader = loaderBox.SelectedItem as string ?? "Fabric";
+            rows.Children.Clear(); selections.Clear(); var version = versionBox.SelectedItem as string ?? currentVersion; var loader = loaderBox.SelectedItem as string ?? "Fabric";
             foreach (var mod in missing)
             {
                 var card = new Border { Background = new SolidColorBrush(Color.FromArgb(75, 29, 42, 55)), CornerRadius = new CornerRadius(10), Padding = new Thickness(12), Margin = new Thickness(0, 0, 0, 8) }; var grid = new Grid(); grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto }); grid.ColumnDefinitions.Add(new ColumnDefinition()); grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1.3, GridUnitType.Star) }); var check = new CheckBox { IsChecked = true, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 10, 0) }; grid.Children.Add(check); var label = new StackPanel(); label.Children.Add(new TextBlock { Text = GetLocalizedMarketplaceName(mod.Slug, mod.Name), Foreground = Brushes.White, FontWeight = FontWeights.SemiBold }); label.Children.Add(new TextBlock { Text = mod.Source, Foreground = new SolidColorBrush(Color.FromRgb(103, 190, 245)) }); Grid.SetColumn(label, 1); grid.Children.Add(label); var versions = new ComboBox { Margin = new Thickness(12, 0, 0, 0), ToolTip = "手动选择此 Mod 在当前 Minecraft 版本与加载器下的具体版本" }; Grid.SetColumn(versions, 2); grid.Children.Add(versions); card.Child = grid; rows.Children.Add(card); selections.Add((mod, check, versions));

@@ -63,6 +63,8 @@ public class AppSettings
     public string CurseForgeApiKey { get; set; } = "";
     public string PreferredMinecraftVersion { get; set; } = "";
     public string PreferredModLoader { get; set; } = "";
+    public string PreferredModSource { get; set; } = "全部";
+    public string LastModSearchQuery { get; set; } = "";
 }
 
 public class FavoriteMod

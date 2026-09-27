@@ -32,6 +32,14 @@ public static class ModNameLocalization
         return "";
     }
 
+    public static IReadOnlyList<string> FindSlugsByChinese(string query, int limit = 8)
+    {
+        if (string.IsNullOrWhiteSpace(query)) return [];
+        return Names.Value.Where(item => item.Value.Contains(query.Trim(), StringComparison.OrdinalIgnoreCase))
+            .OrderBy(item => item.Value.Length).ThenBy(item => item.Key.Length)
+            .Select(item => item.Key).Distinct(StringComparer.OrdinalIgnoreCase).Take(limit).ToList();
+    }
+
     private static IReadOnlyDictionary<string, string> LoadNames()
     {
         var result = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
