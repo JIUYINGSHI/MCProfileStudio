@@ -315,7 +315,7 @@ public partial class MainWindow
         {
             modConfigTabs?.Items.Clear();
             StatusText.Text = "此 Mod 的配置页面生成失败";
-            MessageBox.Show($"无法生成此 Mod 的配置页面：\n{ex.Message}\n\n该错误不会影响其他 Mod。", "配置页面错误", MessageBoxButton.OK, MessageBoxImage.Error);
+            AppDialog.Show($"无法生成此 Mod 的配置页面：\n{ex.Message}\n\n该错误不会影响其他 Mod。", "配置页面错误", MessageBoxButton.OK, MessageBoxImage.Error);
         }
     }
 
@@ -896,8 +896,8 @@ public partial class MainWindow
         var names = Directory.Exists(ModConfigProfilesRoot)
             ? Directory.EnumerateDirectories(ModConfigProfilesRoot).Select(Path.GetFileName).Where(name => !string.IsNullOrWhiteSpace(name)).Cast<string>().Append(settings.ActiveModConfigProfile).Distinct(StringComparer.OrdinalIgnoreCase).Order().ToList()
             : [settings.ActiveModConfigProfile];
-        if (names.Count <= 1) { MessageBox.Show(this, "至少需要保留一套 Mod 配置。", "无法删除", MessageBoxButton.OK, MessageBoxImage.Information); return; }
-        var name = settings.ActiveModConfigProfile; if (MessageBox.Show(this, $"确定删除 Mod 配置“{name}”及其已保存的全部草稿吗？", "删除 Mod 配置", MessageBoxButton.YesNo, MessageBoxImage.Warning) != MessageBoxResult.Yes) return;
+        if (names.Count <= 1) { AppDialog.Show(this, "至少需要保留一套 Mod 配置。", "无法删除", MessageBoxButton.OK, MessageBoxImage.Information); return; }
+        var name = settings.ActiveModConfigProfile; if (AppDialog.Show(this, $"确定删除 Mod 配置“{name}”及其已保存的全部草稿吗？", "删除 Mod 配置", MessageBoxButton.YesNo, MessageBoxImage.Warning) != MessageBoxResult.Yes) return;
         try
         {
             var path = Path.Combine(ModConfigProfilesRoot, SafeProfileName(name));
@@ -906,7 +906,7 @@ public partial class MainWindow
         }
         catch (Exception ex)
         {
-            MessageBox.Show(this, $"删除 Mod 配置失败：\n{ex.Message}", "删除失败", MessageBoxButton.OK, MessageBoxImage.Error);
+            AppDialog.Show(this, $"删除 Mod 配置失败：\n{ex.Message}", "删除失败", MessageBoxButton.OK, MessageBoxImage.Error);
         }
     }
 
@@ -945,7 +945,7 @@ public partial class MainWindow
         catch (Exception ex)
         {
             StatusText.Text = "保存 Mod 配置草稿失败，原配置未被修改";
-            MessageBox.Show($"保存 Mod 配置草稿失败：\n{ex.Message}\n\n游戏实例中的原配置没有被修改。", "保存失败", MessageBoxButton.OK, MessageBoxImage.Error);
+            AppDialog.Show($"保存 Mod 配置草稿失败：\n{ex.Message}\n\n游戏实例中的原配置没有被修改。", "保存失败", MessageBoxButton.OK, MessageBoxImage.Error);
         }
     }
 
@@ -1032,12 +1032,12 @@ public partial class MainWindow
                 else { var profileFile = Path.Combine(source, Path.GetFileName(draft.SourcePath)); if (!File.Exists(profileFile)) continue; BackupModConfig(draft.SourcePath); Directory.CreateDirectory(Path.GetDirectoryName(draft.SourcePath)!); MakeFileWritable(draft.SourcePath); File.Copy(profileFile, draft.SourcePath, true); }
                 applied++;
             }
-            StatusText.Text = $"已覆盖 {applied} 个已安装 Mod 的独立配置"; MessageBox.Show(this, $"已应用 {applied} 个 Mod 配置。写入前已生成 .mcprofilestudio.bak 备份。\n请在 Minecraft 关闭时执行覆盖，部分 Mod 只会在下次启动时读取配置。", "Mod 配置已应用", MessageBoxButton.OK, MessageBoxImage.Information);
+            StatusText.Text = $"已覆盖 {applied} 个已安装 Mod 的独立配置"; AppDialog.Show(this, $"已应用 {applied} 个 Mod 配置。写入前已生成 .mcprofilestudio.bak 备份。\n请在 Minecraft 关闭时执行覆盖，部分 Mod 只会在下次启动时读取配置。", "Mod 配置已应用", MessageBoxButton.OK, MessageBoxImage.Information);
         }
         catch (Exception ex)
         {
             StatusText.Text = "应用 Mod 配置失败";
-            MessageBox.Show(this, $"应用 Mod 配置失败：\n{ex.Message}\n\n已写入的文件均保留了 .mcprofilestudio.bak 备份。", "应用失败", MessageBoxButton.OK, MessageBoxImage.Error);
+            AppDialog.Show(this, $"应用 Mod 配置失败：\n{ex.Message}\n\n已写入的文件均保留了 .mcprofilestudio.bak 备份。", "应用失败", MessageBoxButton.OK, MessageBoxImage.Error);
         }
     }
 

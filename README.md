@@ -17,6 +17,7 @@
 - 资源包、键位和 Mod 配置均可删除当前方案；删除前会确认并立即持久化，且每一类至少保留一套配置。
 - 新增“Mod 收藏与下载”页面：可按 Minecraft 版本、加载器和来源搜索 Modrinth/CurseForge 项目并收藏；支持新建、重命名、删除和切换多套收藏方案，收藏增删只有点击“保存全部收藏 Mod 草稿”后才写入当前方案；导入实例后自动识别环境，首页显示当前方案收藏 Mod 的已安装/缺失状态。
 - 缺失收藏不会自动下载。点击首页检查按钮后，会在独立窗口中逐项勾选，并为每个 Mod 手动选择该 Minecraft 版本与加载器下的具体文件版本，确认后才写入实例 `mods` 目录。
+- 应用内提示、确认、错误和功能弹窗统一使用深色无系统白框界面；密码输入框与复选框也使用同一套现代控件样式。
 - 搜索支持回车提交、PCL 同源离线中文译名反查和项目图标；版本、加载器、来源及上次搜索词会自动记忆。实例识别优先读取启动版本 JSON 的 `clientVersion`、`minecraftVersion`、`inheritsFrom` 与 `--fml.mcVersion`。
 - Modrinth 使用公开 API；CurseForge 官方 API 强制要求 API Key，软件提供仅存储于本机设置的 Key 输入框。未配置 Key 时“全部来源”自动降级为仅搜索 Modrinth。
 - 独立的“Mod 配置”页面可管理 Tweakeroo、Litematica、Inventory Profiles Next、TweakerMore、Item Scroller、MiniHUD 与 MaLiLib 自有配置；按游戏内分类编辑开关、快捷键和列表，并将整套配置保存后按已安装 Mod 一键覆盖到新实例。

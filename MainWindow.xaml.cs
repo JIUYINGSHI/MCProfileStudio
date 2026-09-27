@@ -121,7 +121,7 @@ public partial class MainWindow : Window
     private void PickInstance_Click(object sender, RoutedEventArgs e)
     {
         var path = PickFolder("选择包含 options.txt、mods 的 MC 游戏文件夹"); if (path == null) return;
-        if (!File.Exists(Path.Combine(path, "options.txt"))) { MessageBox.Show(this, "该目录没有 options.txt。请选实例的游戏目录，并确保游戏至少启动过一次。", "无法导入", MessageBoxButton.OK, MessageBoxImage.Warning); return; }
+        if (!File.Exists(Path.Combine(path, "options.txt"))) { AppDialog.Show(this, "该目录没有 options.txt。请选实例的游戏目录，并确保游戏至少启动过一次。", "无法导入", MessageBoxButton.OK, MessageBoxImage.Warning); return; }
         instance = path; InstanceLabel.Text = path; LoadInstance();
     }
     private void ImportOptions_Click(object sender, RoutedEventArgs e)
@@ -142,10 +142,10 @@ public partial class MainWindow : Window
     }
     private (bool Packs, bool Shader, bool Keys)? ShowImportChoice()
     {
-        var dialog = new Window { Owner = this, Title = "选择导入内容", Width = 430, Height = 310, WindowStartupLocation = WindowStartupLocation.CenterOwner, ResizeMode = ResizeMode.NoResize, Background = new SolidColorBrush(Color.FromRgb(14, 22, 31)), Foreground = Brushes.White, FontFamily = (FontFamily)Application.Current.Resources["AppFont"] };
+        var dialog = AppDialog.CreateWindow(this, "选择导入内容", 430, 358, false);
         var root = new StackPanel { Margin = new Thickness(24) }; root.Children.Add(new TextBlock { Text = "从 options.txt 获取哪些内容？", FontSize = 20, FontWeight = FontWeights.SemiBold }); root.Children.Add(new TextBlock { Text = "导入结果只进入当前草稿，不会自动保存配置。", Foreground = new SolidColorBrush(Color.FromRgb(174, 190, 207)), Margin = new Thickness(0, 6, 0, 14) });
         var packsBox = new CheckBox { Content = "资源包启用状态与排序", IsChecked = true }; var shaderBox = new CheckBox { Content = "光影包选择（同时检查同目录 Iris / OptiFine 配置）", IsChecked = true }; var keysBox = new CheckBox { Content = "全部键位配置", IsChecked = true }; root.Children.Add(packsBox); root.Children.Add(shaderBox); root.Children.Add(keysBox);
-        var buttons = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 20, 0, 0) }; var cancel = new Button { Content = "取消", Width = 90, Background = new SolidColorBrush(Color.FromRgb(56, 71, 86)), Margin = new Thickness(0, 0, 8, 0) }; cancel.Click += (_, _) => dialog.DialogResult = false; var ok = new Button { Content = "导入", Width = 100 }; ok.Click += (_, _) => dialog.DialogResult = true; buttons.Children.Add(cancel); buttons.Children.Add(ok); root.Children.Add(buttons); dialog.Content = root;
+        var buttons = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 20, 0, 0) }; var cancel = new Button { Content = "取消", Width = 90, Background = new SolidColorBrush(Color.FromRgb(56, 71, 86)), Margin = new Thickness(0, 0, 8, 0) }; cancel.Click += (_, _) => dialog.DialogResult = false; var ok = new Button { Content = "导入", Width = 100 }; ok.Click += (_, _) => dialog.DialogResult = true; buttons.Children.Add(cancel); buttons.Children.Add(ok); root.Children.Add(buttons); AppDialog.SetBody(dialog, root);
         return dialog.ShowDialog() == true ? (packsBox.IsChecked == true, shaderBox.IsChecked == true, keysBox.IsChecked == true) : null;
     }
     private void LoadInstance()
@@ -212,7 +212,7 @@ public partial class MainWindow : Window
     }
     private void PickShaderPreview_Click(object sender, RoutedEventArgs e)
     {
-        if (ShaderList.SelectedItem is not PackItem p) { MessageBox.Show(this, "请先选择一个光影包。"); return; }
+        if (ShaderList.SelectedItem is not PackItem p) { AppDialog.Show(this, "请先选择一个光影包。"); return; }
         var d = new OpenFileDialog { Title = "选择该光影包的效果图", Filter = "图片|*.png;*.jpg;*.jpeg;*.webp;*.bmp" }; if (d.ShowDialog(this) != true) return;
         var dir = Path.Combine(SettingsStore.Root, "shader-previews"); Directory.CreateDirectory(dir); var target = Path.Combine(dir, Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(p.Name)))[..16] + Path.GetExtension(d.FileName)); File.Copy(d.FileName, target, true); settings.ShaderPreviews[p.Name] = target; p.PreviewPath = target; SettingsStore.Save(settings); ReloadLibraries();
     }
@@ -319,8 +319,8 @@ public partial class MainWindow : Window
     }
     private void DeleteKeyProfile_Click(object? sender, RoutedEventArgs e)
     {
-        if (settings.KeyProfiles.Count <= 1) { MessageBox.Show(this, "至少需要保留一套键位配置。", "无法删除", MessageBoxButton.OK, MessageBoxImage.Information); return; }
-        var name = settings.ActiveKeyProfile; if (MessageBox.Show(this, $"确定删除键位配置“{name}”吗？", "删除键位配置", MessageBoxButton.YesNo, MessageBoxImage.Warning) != MessageBoxResult.Yes) return;
+        if (settings.KeyProfiles.Count <= 1) { AppDialog.Show(this, "至少需要保留一套键位配置。", "无法删除", MessageBoxButton.OK, MessageBoxImage.Information); return; }
+        var name = settings.ActiveKeyProfile; if (AppDialog.Show(this, $"确定删除键位配置“{name}”吗？", "删除键位配置", MessageBoxButton.YesNo, MessageBoxImage.Warning) != MessageBoxResult.Yes) return;
         settings.KeyProfiles.Remove(name); settings.ActiveKeyProfile = settings.KeyProfiles.Keys.Order().First(); SettingsStore.Save(settings); RefreshKeyProfileSelector(); ApplyKeyProfileDraft(); StatusText.Text = $"已删除键位配置：{name}";
     }
     private void SaveKeyProfile_Click(object? sender, RoutedEventArgs e)
@@ -333,16 +333,16 @@ public partial class MainWindow : Window
     }
     private void AddPackProfile_Click(object sender, RoutedEventArgs e)
     {
-        var n = 1; string suggestion; do suggestion = $"配置 {n++}"; while (settings.PackProfiles.ContainsKey(suggestion)); var name = PromptForProfileName("新建资源包配置", suggestion); if (name == null) return; if (settings.PackProfiles.ContainsKey(name)) { MessageBox.Show(this, "已经存在同名配置。", "无法新建"); return; } settings.PackProfiles[name] = new PackProfile(); settings.ActivePackProfile = name; RefreshProfileSelector(); ReloadLibraries(); StatusText.Text = "新资源包配置尚未保存";
+        var n = 1; string suggestion; do suggestion = $"配置 {n++}"; while (settings.PackProfiles.ContainsKey(suggestion)); var name = PromptForProfileName("新建资源包配置", suggestion); if (name == null) return; if (settings.PackProfiles.ContainsKey(name)) { AppDialog.Show(this, "已经存在同名配置。", "无法新建"); return; } settings.PackProfiles[name] = new PackProfile(); settings.ActivePackProfile = name; RefreshProfileSelector(); ReloadLibraries(); StatusText.Text = "新资源包配置尚未保存";
     }
     private void RenamePackProfile_Click(object sender, RoutedEventArgs e)
     {
-        var old = settings.ActivePackProfile; var name = PromptForProfileName("重命名资源包配置", old); if (name == null || name == old) return; if (settings.PackProfiles.ContainsKey(name)) { MessageBox.Show(this, "已经存在同名配置。", "无法重命名"); return; } var profile = settings.PackProfiles[old]; settings.PackProfiles.Remove(old); settings.PackProfiles[name] = profile; settings.ActivePackProfile = name; RefreshProfileSelector();
+        var old = settings.ActivePackProfile; var name = PromptForProfileName("重命名资源包配置", old); if (name == null || name == old) return; if (settings.PackProfiles.ContainsKey(name)) { AppDialog.Show(this, "已经存在同名配置。", "无法重命名"); return; } var profile = settings.PackProfiles[old]; settings.PackProfiles.Remove(old); settings.PackProfiles[name] = profile; settings.ActivePackProfile = name; RefreshProfileSelector();
     }
     private void DeletePackProfile_Click(object sender, RoutedEventArgs e)
     {
-        if (settings.PackProfiles.Count <= 1) { MessageBox.Show(this, "至少需要保留一套资源包配置。", "无法删除", MessageBoxButton.OK, MessageBoxImage.Information); return; }
-        var name = settings.ActivePackProfile; if (MessageBox.Show(this, $"确定删除资源包配置“{name}”吗？", "删除资源包配置", MessageBoxButton.YesNo, MessageBoxImage.Warning) != MessageBoxResult.Yes) return;
+        if (settings.PackProfiles.Count <= 1) { AppDialog.Show(this, "至少需要保留一套资源包配置。", "无法删除", MessageBoxButton.OK, MessageBoxImage.Information); return; }
+        var name = settings.ActivePackProfile; if (AppDialog.Show(this, $"确定删除资源包配置“{name}”吗？", "删除资源包配置", MessageBoxButton.YesNo, MessageBoxImage.Warning) != MessageBoxResult.Yes) return;
         settings.PackProfiles.Remove(name); settings.ActivePackProfile = settings.PackProfiles.Keys.Order().First(); var profile = settings.PackProfiles[settings.ActivePackProfile]; settings.PackOrder = profile.PackOrder.ToList(); settings.EnabledPacks = profile.EnabledPacks.ToList(); SettingsStore.Save(settings); RefreshProfileSelector(); ReloadLibraries(); StatusText.Text = $"已删除资源包配置：{name}";
     }
     private void RefreshProfileSelector() { if (packProfileCombo == null) return; switchingProfile = true; packProfileCombo.ItemsSource = settings.PackProfiles.Keys.Order().ToList(); packProfileCombo.SelectedItem = settings.ActivePackProfile; switchingProfile = false; }
@@ -384,8 +384,8 @@ public partial class MainWindow : Window
 
     private void Apply_Click(object sender, RoutedEventArgs e)
     {
-        if (string.IsNullOrWhiteSpace(instance)) { MessageBox.Show(this, "请先导入一个 MC 游戏文件夹。", "尚未选择实例"); return; }
-        try { MinecraftConfig.MirrorLibrary(settings.PackLibrary, Path.Combine(instance, "resourcepacks")); MinecraftConfig.MirrorLibrary(settings.ShaderLibrary, Path.Combine(instance, "shaderpacks")); var changes = allKeys.ToDictionary(k => k.OptionKey, k => k.Value, StringComparer.Ordinal); changes["resourcePacks"] = MinecraftConfig.ResourcePackValue(packs); MinecraftConfig.PatchOptions(instance, changes); ApplyShaderSelection(); StatusText.Text = $"应用完成：{DateTime.Now:HH:mm:ss}（配置草稿未自动保存）"; MessageBox.Show(this, "当前草稿已写入实例；资源包和键位模板未自动保存。", "应用完成", MessageBoxButton.OK, MessageBoxImage.Information); } catch (Exception ex) { MessageBox.Show(this, ex.Message, "应用失败", MessageBoxButton.OK, MessageBoxImage.Error); }
+        if (string.IsNullOrWhiteSpace(instance)) { AppDialog.Show(this, "请先导入一个 MC 游戏文件夹。", "尚未选择实例"); return; }
+        try { MinecraftConfig.MirrorLibrary(settings.PackLibrary, Path.Combine(instance, "resourcepacks")); MinecraftConfig.MirrorLibrary(settings.ShaderLibrary, Path.Combine(instance, "shaderpacks")); var changes = allKeys.ToDictionary(k => k.OptionKey, k => k.Value, StringComparer.Ordinal); changes["resourcePacks"] = MinecraftConfig.ResourcePackValue(packs); MinecraftConfig.PatchOptions(instance, changes); ApplyShaderSelection(); StatusText.Text = $"应用完成：{DateTime.Now:HH:mm:ss}（配置草稿未自动保存）"; AppDialog.Show(this, "当前草稿已写入实例；资源包和键位模板未自动保存。", "应用完成", MessageBoxButton.OK, MessageBoxImage.Information); } catch (Exception ex) { AppDialog.Show(this, ex.Message, "应用失败", MessageBoxButton.OK, MessageBoxImage.Error); }
     }
     private void ApplyShaderSelection() { if (string.IsNullOrWhiteSpace(draftSelectedShader)) return; PatchProperty(Path.Combine(instance, "config", "iris.properties"), "shaderPack", draftSelectedShader); PatchProperty(Path.Combine(instance, "optionsof.txt"), "ofShaderPack", draftSelectedShader); }
     private static void PatchProperty(string file, string key, string value) { if (!File.Exists(file)) return; File.Copy(file, file + ".mcprofilestudio.bak", true); var lines = File.ReadAllLines(file).ToList(); var i = lines.FindIndex(x => x.StartsWith(key + "=", StringComparison.Ordinal)); if (i >= 0) lines[i] = key + "=" + value; else lines.Add(key + "=" + value); File.WriteAllLines(file, lines); }
