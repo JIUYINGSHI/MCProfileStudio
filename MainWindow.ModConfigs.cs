@@ -13,6 +13,7 @@ namespace McProfileStudio;
 
 public partial class MainWindow
 {
+    private bool modConfigProfileDirty;
     private sealed record ModConfigDefinition(string Id, string ChineseName, string EnglishName, string RelativePath, string PrimaryJson, string[] Aliases)
     {
         public string DisplayName => string.IsNullOrWhiteSpace(ChineseName) || ChineseName.Equals(EnglishName, StringComparison.OrdinalIgnoreCase) ? EnglishName : $"{ChineseName} / {EnglishName}";
@@ -865,7 +866,7 @@ public partial class MainWindow
         return result.ToString().Replace('_', ' ');
     }
 
-    private void MarkModConfigDraftChanged() => StatusText.Text = "Mod 配置已修改（尚未保存配置）";
+    private void MarkModConfigDraftChanged() { modConfigProfileDirty = true; StatusText.Text = "Mod 配置已修改（尚未保存配置）"; }
 
     private void RefreshModConfigProfiles()
     {
@@ -877,7 +878,9 @@ public partial class MainWindow
 
     private void ModConfigProfile_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
-        if (switchingModConfigProfile || modConfigProfileCombo?.SelectedItem is not string name) return; settings.ActiveModConfigProfile = name; SettingsStore.Save(settings); RefreshModConfigPage();
+        if (switchingModConfigProfile || modConfigProfileCombo?.SelectedItem is not string name || name == settings.ActiveModConfigProfile) return;
+        if (modConfigProfileDirty && AppDialog.Show(this, "当前 Mod 配置有尚未保存的修改。切换后这些草稿会丢失，仍要切换吗？", "未保存的 Mod 配置草稿", MessageBoxButton.YesNo, MessageBoxImage.Warning) != MessageBoxResult.Yes) { switchingModConfigProfile = true; modConfigProfileCombo.SelectedItem = settings.ActiveModConfigProfile; switchingModConfigProfile = false; return; }
+        modConfigProfileDirty = false; settings.ActiveModConfigProfile = name; SettingsStore.Save(settings); RefreshModConfigPage();
     }
 
     private void AddModConfigProfile_Click(object sender, RoutedEventArgs e)
@@ -940,7 +943,7 @@ public partial class MainWindow
                 var primary = draft.Definition.PrimaryJson.Length > 0 ? Path.Combine(destination, draft.Definition.PrimaryJson) : Path.Combine(destination, Path.GetFileName(draft.SourcePath));
                 if (draft.Json != null) WriteDraftJson(draft, primary);
             }
-            SettingsStore.Save(settings); RefreshModConfigProfiles(); StatusText.Text = $"已保存 Mod 配置：{settings.ActiveModConfigProfile}";
+            SettingsStore.Save(settings); RefreshModConfigProfiles(); modConfigProfileDirty = false; StatusText.Text = $"已保存 Mod 配置：{settings.ActiveModConfigProfile}";
         }
         catch (Exception ex)
         {

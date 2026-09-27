@@ -2,6 +2,7 @@ using System.Net.Http;
 using System.IO;
 using System.IO.Compression;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 
 namespace McProfileStudio;
 
@@ -11,18 +12,42 @@ public static class ModMarketplaceService
 
     static ModMarketplaceService() => Client.DefaultRequestHeaders.UserAgent.ParseAdd("MCProfileStudio/1.0");
 
-    public static async Task<List<ModSearchResult>> SearchAsync(string query, string gameVersion, string loader, string source, string curseForgeApiKey, CancellationToken token)
+    public static async Task<List<ModSearchResult>> SearchAsync(string query, string gameVersion, string loader, string source, string curseForgeApiKey, string githubToken, CancellationToken token)
     {
         var tasks = new List<Task<List<ModSearchResult>>>();
-        if (source is "全部" or "Modrinth") tasks.Add(SearchModrinthAsync(query, gameVersion, loader, token));
+        if (source is "全部" or "Modrinth") tasks.Add(source == "全部" ? SafeSearchAsync(() => SearchModrinthAsync(query, gameVersion, loader, token)) : SearchModrinthAsync(query, gameVersion, loader, token));
         if (source is "全部" or "CurseForge")
         {
             if (string.IsNullOrWhiteSpace(curseForgeApiKey) && source == "CurseForge") throw new InvalidOperationException("使用 CurseForge 搜索前，请先填写 CurseForge API Key。");
-            if (!string.IsNullOrWhiteSpace(curseForgeApiKey)) tasks.Add(SearchCurseForgeAsync(query, gameVersion, loader, curseForgeApiKey, token));
+            if (!string.IsNullOrWhiteSpace(curseForgeApiKey)) tasks.Add(source == "全部" ? SafeSearchAsync(() => SearchCurseForgeAsync(query, gameVersion, loader, curseForgeApiKey, token)) : SearchCurseForgeAsync(query, gameVersion, loader, curseForgeApiKey, token));
         }
+        if (source is "全部" or "GitHub") tasks.Add(source == "全部" ? SafeSearchAsync(() => SearchGitHubAsync(query, githubToken, token)) : SearchGitHubAsync(query, githubToken, token));
         if (tasks.Count == 0) return [];
         var results = await Task.WhenAll(tasks);
         return results.SelectMany(item => item).OrderByDescending(item => item.Downloads).ToList();
+    }
+
+    private static async Task<List<ModSearchResult>> SafeSearchAsync(Func<Task<List<ModSearchResult>>> search)
+    {
+        try { return await search(); } catch (OperationCanceledException) { throw; } catch { return []; }
+    }
+
+    private static async Task<List<ModSearchResult>> SearchGitHubAsync(string query, string token, CancellationToken cancellationToken)
+    {
+        var search = string.IsNullOrWhiteSpace(query) ? "minecraft mod" : $"{query} minecraft mod";
+        using var request = CreateGitHubRequest(HttpMethod.Get, "https://api.github.com/search/repositories?per_page=30&sort=stars&order=desc&q=" + Uri.EscapeDataString(search), token);
+        using var response = await Client.SendAsync(request, cancellationToken); response.EnsureSuccessStatusCode();
+        using var document = JsonDocument.Parse(await response.Content.ReadAsStreamAsync(cancellationToken));
+        return document.RootElement.GetProperty("items").EnumerateArray().Select(item => new ModSearchResult
+        {
+            Source = "GitHub",
+            ProjectId = item.GetProperty("full_name").GetString() ?? "",
+            Slug = item.GetProperty("name").GetString() ?? "",
+            Name = item.GetProperty("name").GetString() ?? "",
+            Description = item.TryGetProperty("description", out var description) && description.ValueKind == JsonValueKind.String ? description.GetString() ?? "" : "",
+            IconUrl = item.TryGetProperty("owner", out var owner) && owner.TryGetProperty("avatar_url", out var avatar) ? avatar.GetString() ?? "" : "",
+            Downloads = item.TryGetProperty("stargazers_count", out var stars) ? stars.GetInt64() : 0
+        }).ToList();
     }
 
     private static async Task<List<ModSearchResult>> SearchModrinthAsync(string query, string gameVersion, string loader, CancellationToken token)
@@ -60,11 +85,59 @@ public static class ModMarketplaceService
         }).ToList();
     }
 
-    public static async Task<List<ModDownloadVersion>> GetVersionsAsync(FavoriteMod mod, string gameVersion, string loader, string curseForgeApiKey, CancellationToken token)
+    public static async Task<List<ModDownloadVersion>> GetVersionsAsync(FavoriteMod mod, string gameVersion, string loader, string curseForgeApiKey, string githubToken, CancellationToken token)
     {
-        return mod.Source == "CurseForge"
-            ? await GetCurseForgeVersionsAsync(mod, gameVersion, loader, curseForgeApiKey, token)
-            : await GetModrinthVersionsAsync(mod, gameVersion, loader, token);
+        return mod.Source switch
+        {
+            "CurseForge" => await GetCurseForgeVersionsAsync(mod, gameVersion, loader, curseForgeApiKey, token),
+            "GitHub" => await GetGitHubVersionsAsync(mod, gameVersion, loader, githubToken, token),
+            _ => await GetModrinthVersionsAsync(mod, gameVersion, loader, token)
+        };
+    }
+
+    private static async Task<List<ModDownloadVersion>> GetGitHubVersionsAsync(FavoriteMod mod, string gameVersion, string loader, string token, CancellationToken cancellationToken)
+    {
+        using var request = CreateGitHubRequest(HttpMethod.Get, $"https://api.github.com/repos/{mod.ProjectId}/releases?per_page=50", token);
+        using var response = await Client.SendAsync(request, cancellationToken); response.EnsureSuccessStatusCode();
+        using var document = JsonDocument.Parse(await response.Content.ReadAsStreamAsync(cancellationToken));
+        var results = new List<ModDownloadVersion>();
+        foreach (var release in document.RootElement.EnumerateArray())
+        {
+            if (release.TryGetProperty("draft", out var draft) && draft.GetBoolean()) continue;
+            var releaseName = string.Join(' ', release.GetProperty("tag_name").GetString(), release.TryGetProperty("name", out var name) ? name.GetString() : "", release.TryGetProperty("body", out var body) && body.ValueKind == JsonValueKind.String ? body.GetString() : "");
+            foreach (var asset in release.GetProperty("assets").EnumerateArray())
+            {
+                var fileName = asset.GetProperty("name").GetString() ?? "";
+                if (!fileName.EndsWith(".jar", StringComparison.OrdinalIgnoreCase) || IsDevelopmentJar(fileName)) continue;
+                var matchText = releaseName + " " + fileName;
+                if (!ContainsVersionToken(matchText, gameVersion) || !MatchesLoader(matchText, loader)) continue;
+                results.Add(new ModDownloadVersion
+                {
+                    Source = "GitHub", ProjectId = mod.ProjectId, Id = asset.GetProperty("id").GetInt64().ToString(),
+                    DisplayName = release.TryGetProperty("name", out var display) && display.ValueKind == JsonValueKind.String ? display.GetString() ?? fileName : fileName,
+                    VersionNumber = release.GetProperty("tag_name").GetString() ?? "", FileName = fileName,
+                    DownloadUrl = asset.GetProperty("browser_download_url").GetString() ?? ""
+                });
+            }
+        }
+        return results;
+    }
+
+    private static HttpRequestMessage CreateGitHubRequest(HttpMethod method, string url, string token)
+    {
+        var request = new HttpRequestMessage(method, url); request.Headers.Accept.ParseAdd("application/vnd.github+json"); request.Headers.Add("X-GitHub-Api-Version", "2022-11-28");
+        if (!string.IsNullOrWhiteSpace(token)) request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
+        return request;
+    }
+
+    private static bool ContainsVersionToken(string text, string version) => Regex.IsMatch(text, $@"(?<!\d){Regex.Escape(version)}(?!\d)", RegexOptions.IgnoreCase);
+    private static bool IsDevelopmentJar(string fileName) => Regex.IsMatch(fileName, @"(?:sources|source|javadoc|dev|deobf|api)(?:[-_.]|\.jar$)", RegexOptions.IgnoreCase);
+    private static bool MatchesLoader(string text, string loader)
+    {
+        var normalized = loader.ToLowerInvariant(); var lower = text.ToLowerInvariant();
+        if (lower.Contains(normalized)) return true;
+        var otherLoaders = new[] { "fabric", "forge", "neoforge", "quilt" }.Where(item => item != normalized);
+        return !otherLoaders.Any(lower.Contains);
     }
 
     private static async Task<List<ModDownloadVersion>> GetModrinthVersionsAsync(FavoriteMod mod, string gameVersion, string loader, CancellationToken token)

@@ -17,6 +17,7 @@ public partial class MainWindow
     private TextBlock? marketplaceStatus, favoriteHomeSummary;
     private ComboBox? favoriteProfileCombo;
     private bool switchingFavoriteProfile;
+    private bool favoriteProfileDirty;
     private readonly List<FavoriteMod> favoriteModDraft = [];
     private CancellationTokenSource? marketplaceSearchCancellation;
     private static readonly string[] CommonMinecraftVersions = ["1.21.10", "1.21.8", "1.21.5", "1.21.4", "1.21.1", "1.20.6", "1.20.4", "1.20.1", "1.19.4", "1.19.2", "1.18.2", "1.16.5", "1.12.2"];
@@ -39,6 +40,7 @@ public partial class MainWindow
     {
         favoriteModDraft.Clear();
         if (settings.FavoriteModProfiles.TryGetValue(settings.ActiveFavoriteModProfile, out var profile)) favoriteModDraft.AddRange(CloneFavoriteMods(profile.Mods ?? []));
+        favoriteProfileDirty = false;
     }
 
     private void RefreshFavoriteProfileSelector()
@@ -48,7 +50,12 @@ public partial class MainWindow
 
     private void FavoriteProfile_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
-        if (switchingFavoriteProfile || favoriteProfileCombo?.SelectedItem is not string name || name == settings.ActiveFavoriteModProfile) return; settings.ActiveFavoriteModProfile = name; SettingsStore.Save(settings); LoadFavoriteProfileDraft(); marketplaceResults?.Children.Clear(); RefreshFavoriteList(); RefreshFavoriteModStatus(); StatusText.Text = $"已切换 Mod 收藏方案：{name}";
+        if (switchingFavoriteProfile || favoriteProfileCombo?.SelectedItem is not string name || name == settings.ActiveFavoriteModProfile) return;
+        if (favoriteProfileDirty && AppDialog.Show(this, "当前 Mod 收藏方案有尚未保存的增删。切换后这些草稿会丢失，仍要切换吗？", "未保存的收藏草稿", MessageBoxButton.YesNo, MessageBoxImage.Warning) != MessageBoxResult.Yes)
+        {
+            switchingFavoriteProfile = true; favoriteProfileCombo.SelectedItem = settings.ActiveFavoriteModProfile; switchingFavoriteProfile = false; return;
+        }
+        settings.ActiveFavoriteModProfile = name; SettingsStore.Save(settings); LoadFavoriteProfileDraft(); marketplaceResults?.Children.Clear(); RefreshFavoriteList(); RefreshFavoriteModStatus(); StatusText.Text = $"已切换 Mod 收藏方案：{name}";
     }
 
     private void AddFavoriteProfile_Click(object sender, RoutedEventArgs e)
@@ -68,7 +75,7 @@ public partial class MainWindow
 
     private void SaveFavoriteProfile_Click(object sender, RoutedEventArgs e)
     {
-        var saved = CloneFavoriteMods(favoriteModDraft); settings.FavoriteModProfiles[settings.ActiveFavoriteModProfile] = new FavoriteModProfile { Mods = saved }; settings.FavoriteMods = CloneFavoriteMods(saved); SettingsStore.Save(settings); StatusText.Text = $"已保存 Mod 收藏方案：{settings.ActiveFavoriteModProfile}";
+        var saved = CloneFavoriteMods(favoriteModDraft); settings.FavoriteModProfiles[settings.ActiveFavoriteModProfile] = new FavoriteModProfile { Mods = saved }; settings.FavoriteMods = CloneFavoriteMods(saved); SettingsStore.Save(settings); favoriteProfileDirty = false; StatusText.Text = $"已保存 Mod 收藏方案：{settings.ActiveFavoriteModProfile}";
     }
 
     private void BuildFavoriteModsPage()
@@ -85,7 +92,7 @@ public partial class MainWindow
         var filters = new Grid { Margin = new Thickness(0, 8, 0, 8) }; for (var i = 0; i < 3; i++) filters.ColumnDefinitions.Add(new ColumnDefinition());
         marketplaceVersionCombo = new ComboBox { ItemsSource = CommonMinecraftVersions, Margin = new Thickness(0, 0, 6, 0), ToolTip = "Minecraft 版本" };
         marketplaceLoaderCombo = new ComboBox { ItemsSource = SupportedLoaders, Margin = new Thickness(3, 0, 3, 0), ToolTip = "Mod 加载器" };
-        marketplaceSourceCombo = new ComboBox { ItemsSource = new[] { "全部", "Modrinth", "CurseForge" }, SelectedItem = new[] { "全部", "Modrinth", "CurseForge" }.Contains(settings.PreferredModSource) ? settings.PreferredModSource : "全部", Margin = new Thickness(6, 0, 0, 0), ToolTip = "下载来源" };
+        marketplaceSourceCombo = new ComboBox { ItemsSource = new[] { "全部", "Modrinth", "CurseForge", "GitHub" }, SelectedItem = new[] { "全部", "Modrinth", "CurseForge", "GitHub" }.Contains(settings.PreferredModSource) ? settings.PreferredModSource : "全部", Margin = new Thickness(6, 0, 0, 0), ToolTip = "下载来源" };
         marketplaceVersionCombo.SelectionChanged += (_, _) => SaveMarketplacePreferences(); marketplaceLoaderCombo.SelectionChanged += (_, _) => SaveMarketplacePreferences(); marketplaceSourceCombo.SelectionChanged += (_, _) => SaveMarketplacePreferences(); modSearchBox.LostKeyboardFocus += (_, _) => SaveMarketplacePreferences();
         Grid.SetColumn(marketplaceLoaderCombo, 1); Grid.SetColumn(marketplaceSourceCombo, 2); filters.Children.Add(marketplaceVersionCombo); filters.Children.Add(marketplaceLoaderCombo); filters.Children.Add(marketplaceSourceCombo); searchPanel.Children.Add(filters);
         var searchButtons = new WrapPanel(); var search = new Button { Content = "搜索 Mod", MinWidth = 120 }; search.Click += SearchMarketplace_Click; var detect = new Button { Content = "重新识别实例环境", Background = new SolidColorBrush(Color.FromRgb(56, 71, 86)), Margin = new Thickness(8, 0, 0, 0) }; detect.Click += (_, _) => { DetectAndSelectInstanceEnvironment(true); RefreshFavoriteModStatus(); }; searchButtons.Children.Add(search); searchButtons.Children.Add(detect); searchPanel.Children.Add(searchButtons);
@@ -119,10 +126,13 @@ public partial class MainWindow
 
     private void ConfigureMarketplace_Click(object sender, RoutedEventArgs e)
     {
-        var dialog = AppDialog.CreateWindow(this, "下载源设置", 520, 338, false);
-        var root = new StackPanel { Margin = new Thickness(24) }; root.Children.Add(new TextBlock { Text = "CurseForge API Key", FontSize = 20, FontWeight = FontWeights.SemiBold }); root.Children.Add(new TextBlock { Text = "CurseForge 官方接口要求调用方提供 API Key。密钥只保存在本机设置中；Modrinth 无需密钥。", Foreground = new SolidColorBrush(Color.FromRgb(174, 190, 207)), TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 7, 0, 14) });
-        var keyBox = new PasswordBox { Password = settings.CurseForgeApiKey }; root.Children.Add(keyBox); var buttons = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 18, 0, 0) }; var clear = new Button { Content = "清除 Key", Background = new SolidColorBrush(Color.FromRgb(112, 48, 56)), Margin = new Thickness(0, 0, 8, 0) }; clear.Click += (_, _) => keyBox.Password = ""; var cancel = new Button { Content = "取消", Background = new SolidColorBrush(Color.FromRgb(56, 71, 86)), Margin = new Thickness(0, 0, 8, 0) }; cancel.Click += (_, _) => dialog.DialogResult = false; var save = new Button { Content = "保存" }; save.Click += (_, _) => dialog.DialogResult = true; buttons.Children.Add(clear); buttons.Children.Add(cancel); buttons.Children.Add(save); root.Children.Add(buttons); AppDialog.SetBody(dialog, root);
-        if (dialog.ShowDialog() == true) { settings.CurseForgeApiKey = keyBox.Password.Trim(); SettingsStore.Save(settings); StatusText.Text = string.IsNullOrWhiteSpace(settings.CurseForgeApiKey) ? "已清除 CurseForge API Key" : "已保存 CurseForge API Key"; }
+        var dialog = AppDialog.CreateWindow(this, "下载源设置", 560, 500, false);
+        var root = new StackPanel { Margin = new Thickness(24) }; root.Children.Add(new TextBlock { Text = "CurseForge API Key", FontSize = 18, FontWeight = FontWeights.SemiBold }); root.Children.Add(new TextBlock { Text = "用于 CurseForge 官方接口，只保存在本机。", Foreground = new SolidColorBrush(Color.FromRgb(174, 190, 207)), TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 6, 0, 8) });
+        var keyBox = new PasswordBox { Password = settings.CurseForgeApiKey }; root.Children.Add(keyBox);
+        root.Children.Add(new TextBlock { Text = "GitHub Token（可选）", FontSize = 18, FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 18, 0, 0) }); root.Children.Add(new TextBlock { Text = "不填写也可搜索；填写个人访问令牌可提高 GitHub API 额度。令牌同样只保存在本机。", Foreground = new SolidColorBrush(Color.FromRgb(174, 190, 207)), TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 6, 0, 8) });
+        var githubBox = new PasswordBox { Password = settings.GitHubToken }; root.Children.Add(githubBox);
+        var buttons = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 20, 0, 0) }; var clear = new Button { Content = "清除密钥", Background = new SolidColorBrush(Color.FromRgb(112, 48, 56)), Margin = new Thickness(0, 0, 8, 0) }; clear.Click += (_, _) => { keyBox.Password = ""; githubBox.Password = ""; }; var cancel = new Button { Content = "取消", Background = new SolidColorBrush(Color.FromRgb(56, 71, 86)), Margin = new Thickness(0, 0, 8, 0) }; cancel.Click += (_, _) => dialog.DialogResult = false; var save = new Button { Content = "保存" }; save.Click += (_, _) => dialog.DialogResult = true; buttons.Children.Add(clear); buttons.Children.Add(cancel); buttons.Children.Add(save); root.Children.Add(buttons); AppDialog.SetBody(dialog, root);
+        if (dialog.ShowDialog() == true) { settings.CurseForgeApiKey = keyBox.Password.Trim(); settings.GitHubToken = githubBox.Password.Trim(); SettingsStore.Save(settings); StatusText.Text = "已保存下载源设置"; }
     }
 
     private async void SearchMarketplace_Click(object sender, RoutedEventArgs e)
@@ -134,10 +144,10 @@ public partial class MainWindow
         try
         {
             var rawQuery = modSearchBox?.Text.Trim() ?? ""; var queries = ModNameLocalization.ContainsChinese(rawQuery) ? ModNameLocalization.FindSlugsByChinese(rawQuery).ToList() : [rawQuery]; if (queries.Count == 0) queries.Add(rawQuery);
-            var batches = await Task.WhenAll(queries.Select(query => ModMarketplaceService.SearchAsync(query, version, loader, source, settings.CurseForgeApiKey, marketplaceSearchCancellation.Token)));
+            var batches = await Task.WhenAll(queries.Select(query => ModMarketplaceService.SearchAsync(query, version, loader, source, settings.CurseForgeApiKey, settings.GitHubToken, marketplaceSearchCancellation.Token)));
             var results = batches.SelectMany(batch => batch).DistinctBy(item => item.Source + ":" + item.ProjectId).OrderByDescending(item => item.Downloads).ToList();
             foreach (var result in results) marketplaceResults.Children.Add(BuildMarketplaceResult(result));
-            marketplaceStatus.Text = $"找到 {results.Count} 个兼容 {version} / {loader} 的 Mod" + (source == "全部" && string.IsNullOrWhiteSpace(settings.CurseForgeApiKey) ? "；未设置 CurseForge Key，本次仅搜索 Modrinth" : "");
+            marketplaceStatus.Text = $"找到 {results.Count} 个候选项目（下载时将再次核对 {version} / {loader}）" + (source == "全部" && string.IsNullOrWhiteSpace(settings.CurseForgeApiKey) ? "；未设置 CurseForge Key，本次搜索 Modrinth 与 GitHub" : "");
         }
         catch (Exception ex) { marketplaceStatus.Text = "搜索失败：" + ex.Message; }
     }
@@ -157,7 +167,7 @@ public partial class MainWindow
         var grid = new Grid(); grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(58) }); grid.ColumnDefinitions.Add(new ColumnDefinition()); grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         var icon = new Border { Width = 48, Height = 48, CornerRadius = new CornerRadius(8), Background = new SolidColorBrush(Color.FromRgb(42, 58, 72)), ClipToBounds = true, VerticalAlignment = VerticalAlignment.Top };
         if (TryCreateRemoteImage(result.IconUrl) is { } image) icon.Child = image; else icon.Child = new TextBlock { Text = "MOD", Foreground = new SolidColorBrush(Color.FromRgb(103, 190, 245)), HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center, FontSize = 10 };
-        grid.Children.Add(icon); var text = new StackPanel(); text.Children.Add(new TextBlock { Text = GetLocalizedMarketplaceName(result.Slug, result.Name), Foreground = Brushes.White, FontSize = 15, FontWeight = FontWeights.SemiBold }); text.Children.Add(new TextBlock { Text = result.Description, Foreground = new SolidColorBrush(Color.FromRgb(174, 190, 207)), TextWrapping = TextWrapping.Wrap, MaxHeight = 42 }); text.Children.Add(new TextBlock { Text = $"{result.Source}  ·  {result.Downloads:N0} 次下载", Foreground = new SolidColorBrush(Color.FromRgb(103, 190, 245)), Margin = new Thickness(0, 5, 0, 0) }); Grid.SetColumn(text, 1); grid.Children.Add(text);
+        grid.Children.Add(icon); var text = new StackPanel(); text.Children.Add(new TextBlock { Text = GetLocalizedMarketplaceName(result.Slug, result.Name), Foreground = Brushes.White, FontSize = 15, FontWeight = FontWeights.SemiBold }); text.Children.Add(new TextBlock { Text = result.Description, Foreground = new SolidColorBrush(Color.FromRgb(174, 190, 207)), TextWrapping = TextWrapping.Wrap, MaxHeight = 42 }); text.Children.Add(new TextBlock { Text = result.Source == "GitHub" ? $"GitHub  ·  {result.Downloads:N0} Stars" : $"{result.Source}  ·  {result.Downloads:N0} 次下载", Foreground = new SolidColorBrush(Color.FromRgb(103, 190, 245)), Margin = new Thickness(0, 5, 0, 0) }); Grid.SetColumn(text, 1); grid.Children.Add(text);
         var exists = favoriteModDraft.Any(item => item.Source == result.Source && item.ProjectId == result.ProjectId); var button = new Button { Content = exists ? "已收藏" : "收藏", IsEnabled = !exists, Margin = new Thickness(10, 0, 0, 0), MinWidth = 78, Tag = result }; button.Click += FavoriteSearchResult_Click; Grid.SetColumn(button, 2); grid.Children.Add(button); card.Child = grid; return card;
     }
 
@@ -170,7 +180,7 @@ public partial class MainWindow
     private void FavoriteSearchResult_Click(object sender, RoutedEventArgs e)
     {
         if (sender is not Button { Tag: ModSearchResult result }) return;
-        favoriteModDraft.Add(new FavoriteMod { Source = result.Source, ProjectId = result.ProjectId, Slug = result.Slug, Name = result.Name, Description = result.Description, IconUrl = result.IconUrl }); RefreshFavoriteList(); RefreshFavoriteModStatus(); StatusText.Text = "Mod 收藏草稿已修改（尚未保存方案）"; ((Button)sender).Content = "已收藏"; ((Button)sender).IsEnabled = false;
+        favoriteModDraft.Add(new FavoriteMod { Source = result.Source, ProjectId = result.ProjectId, Slug = result.Slug, Name = result.Name, Description = result.Description, IconUrl = result.IconUrl }); favoriteProfileDirty = true; RefreshFavoriteList(); RefreshFavoriteModStatus(); StatusText.Text = "Mod 收藏草稿已修改（尚未保存方案）"; ((Button)sender).Content = "已收藏"; ((Button)sender).IsEnabled = false;
     }
 
     private void RefreshFavoriteList()
@@ -178,7 +188,7 @@ public partial class MainWindow
         if (favoriteModsList == null) return; favoriteModsList.Children.Clear();
         foreach (var favorite in favoriteModDraft.OrderBy(item => item.Name))
         {
-            var row = new Border { Background = new SolidColorBrush(Color.FromArgb(60, 29, 42, 55)), CornerRadius = new CornerRadius(9), Padding = new Thickness(11), Margin = new Thickness(0, 0, 0, 7) }; var grid = new Grid(); grid.ColumnDefinitions.Add(new ColumnDefinition()); grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto }); var text = new StackPanel(); text.Children.Add(new TextBlock { Text = GetLocalizedMarketplaceName(favorite.Slug, favorite.Name), Foreground = Brushes.White, FontWeight = FontWeights.SemiBold }); text.Children.Add(new TextBlock { Text = $"{favorite.Source}  ·  {favorite.Slug}", Foreground = new SolidColorBrush(Color.FromRgb(103, 190, 245)) }); grid.Children.Add(text); var remove = new Button { Content = "移除", Tag = favorite, Background = new SolidColorBrush(Color.FromRgb(112, 48, 56)), Margin = new Thickness(8, 0, 0, 0) }; remove.Click += (_, _) => { favoriteModDraft.Remove(favorite); RefreshFavoriteList(); RefreshFavoriteModStatus(); StatusText.Text = "Mod 收藏草稿已修改（尚未保存方案）"; }; Grid.SetColumn(remove, 1); grid.Children.Add(remove); row.Child = grid; favoriteModsList.Children.Add(row);
+            var row = new Border { Background = new SolidColorBrush(Color.FromArgb(60, 29, 42, 55)), CornerRadius = new CornerRadius(9), Padding = new Thickness(11), Margin = new Thickness(0, 0, 0, 7) }; var grid = new Grid(); grid.ColumnDefinitions.Add(new ColumnDefinition()); grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto }); var text = new StackPanel(); text.Children.Add(new TextBlock { Text = GetLocalizedMarketplaceName(favorite.Slug, favorite.Name), Foreground = Brushes.White, FontWeight = FontWeights.SemiBold }); text.Children.Add(new TextBlock { Text = $"{favorite.Source}  ·  {favorite.Slug}", Foreground = new SolidColorBrush(Color.FromRgb(103, 190, 245)) }); grid.Children.Add(text); var remove = new Button { Content = "移除", Tag = favorite, Background = new SolidColorBrush(Color.FromRgb(112, 48, 56)), Margin = new Thickness(8, 0, 0, 0) }; remove.Click += (_, _) => { favoriteModDraft.Remove(favorite); favoriteProfileDirty = true; RefreshFavoriteList(); RefreshFavoriteModStatus(); StatusText.Text = "Mod 收藏草稿已修改（尚未保存方案）"; }; Grid.SetColumn(remove, 1); grid.Children.Add(remove); row.Child = grid; favoriteModsList.Children.Add(row);
         }
         if (favoriteModDraft.Count == 0) favoriteModsList.Children.Add(new TextBlock { Text = "还没有收藏 Mod，请从左侧搜索。", Foreground = new SolidColorBrush(Color.FromRgb(166, 185, 203)) });
     }
@@ -257,7 +267,7 @@ public partial class MainWindow
             foreach (var mod in missing)
             {
                 var card = new Border { Background = new SolidColorBrush(Color.FromArgb(75, 29, 42, 55)), CornerRadius = new CornerRadius(10), Padding = new Thickness(12), Margin = new Thickness(0, 0, 0, 8) }; var grid = new Grid(); grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto }); grid.ColumnDefinitions.Add(new ColumnDefinition()); grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1.3, GridUnitType.Star) }); var check = new CheckBox { IsChecked = true, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 10, 0) }; grid.Children.Add(check); var label = new StackPanel(); label.Children.Add(new TextBlock { Text = GetLocalizedMarketplaceName(mod.Slug, mod.Name), Foreground = Brushes.White, FontWeight = FontWeights.SemiBold }); label.Children.Add(new TextBlock { Text = mod.Source, Foreground = new SolidColorBrush(Color.FromRgb(103, 190, 245)) }); Grid.SetColumn(label, 1); grid.Children.Add(label); var versions = new ComboBox { Margin = new Thickness(12, 0, 0, 0), ToolTip = "手动选择此 Mod 在当前 Minecraft 版本与加载器下的具体版本" }; Grid.SetColumn(versions, 2); grid.Children.Add(versions); card.Child = grid; rows.Children.Add(card); selections.Add((mod, check, versions));
-                try { var available = await ModMarketplaceService.GetVersionsAsync(mod, version, loader, settings.CurseForgeApiKey, CancellationToken.None); versions.ItemsSource = available; versions.SelectedIndex = available.Count > 0 ? 0 : -1; if (available.Count == 0) { check.IsChecked = false; check.IsEnabled = false; versions.ToolTip = "没有找到兼容版本"; } }
+                try { var available = await ModMarketplaceService.GetVersionsAsync(mod, version, loader, settings.CurseForgeApiKey, settings.GitHubToken, CancellationToken.None); versions.ItemsSource = available; versions.SelectedIndex = available.Count > 0 ? 0 : -1; if (available.Count == 0) { check.IsChecked = false; check.IsEnabled = false; versions.ToolTip = "没有找到能明确匹配当前版本和加载器的文件"; } }
                 catch (Exception ex) { check.IsChecked = false; check.IsEnabled = false; versions.ToolTip = ex.Message; }
             }
         }

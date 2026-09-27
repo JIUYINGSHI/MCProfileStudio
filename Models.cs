@@ -61,6 +61,7 @@ public class AppSettings
     public string ModConfigLanguage { get; set; } = "中文优先";
     public List<FavoriteMod> FavoriteMods { get; set; } = [];
     public string CurseForgeApiKey { get; set; } = "";
+    public string GitHubToken { get; set; } = "";
     public string PreferredMinecraftVersion { get; set; } = "";
     public string PreferredModLoader { get; set; } = "";
     public string PreferredModSource { get; set; } = "全部";

@@ -114,7 +114,7 @@ public partial class MainWindow : Window
         if (!IsLoaded) return; var index = int.Parse((string)((RadioButton)sender).Tag);
         HomePage.Visibility = index == 0 ? Visibility.Visible : Visibility.Collapsed; PacksPage.Visibility = index == 1 ? Visibility.Visible : Visibility.Collapsed; ShadersPage.Visibility = index == 2 ? Visibility.Visible : Visibility.Collapsed; KeysPage.Visibility = index == 3 ? Visibility.Visible : Visibility.Collapsed; if (modConfigsPage != null) modConfigsPage.Visibility = index == 4 ? Visibility.Visible : Visibility.Collapsed; if (favoriteModsPage != null) favoriteModsPage.Visibility = index == 5 ? Visibility.Visible : Visibility.Collapsed;
         PageTitle.Text = new[] { "概览", "资源包排序", "光影包覆盖", "可视化键位", "Mod 配置", "Mod 收藏与下载" }[index];
-        PageSubtitle.Text = new[] { "选择整合包实例，然后统一应用资源与键位。", "拖动调整优先级；不会阻止版本不兼容的资源包。", "固定库存，一键覆盖到任意新整合包。", "从键盘占用定位冲突，再按 Mod 保存专属键位。", "管理不写入 options.txt 的独立快捷键、开关和列表配置。", "从 Modrinth 与 CurseForge 收藏 Mod，并为新实例选择兼容版本。" }[index];
+        PageSubtitle.Text = new[] { "选择整合包实例，然后统一应用资源与键位。", "拖动调整优先级；不会阻止版本不兼容的资源包。", "固定库存，一键覆盖到任意新整合包。", "从键盘占用定位冲突，再按 Mod 保存专属键位。", "管理不写入 options.txt 的独立快捷键、开关和列表配置。", "从 Modrinth、CurseForge 与 GitHub 收藏 Mod，并为新实例选择兼容版本。" }[index];
     }
 
     private string? PickFolder(string title) { var d = new OpenFolderDialog { Title = title, Multiselect = false }; return d.ShowDialog(this) == true ? d.FolderName : null; }
@@ -303,7 +303,9 @@ public partial class MainWindow : Window
     private void RefreshKeyProfileSelector() { if (keyProfileCombo == null) return; switchingKeyProfile = true; keyProfileCombo.ItemsSource = settings.KeyProfiles.Keys.Order().ToList(); keyProfileCombo.SelectedItem = settings.ActiveKeyProfile; switchingKeyProfile = false; }
     private void KeyProfile_SelectionChanged(object? sender, SelectionChangedEventArgs e)
     {
-        if (switchingKeyProfile || keyProfileCombo?.SelectedItem is not string name || name == settings.ActiveKeyProfile) return; settings.ActiveKeyProfile = name; ApplyKeyProfileDraft(); StatusText.Text = $"已切换键位配置：{name}";
+        if (switchingKeyProfile || keyProfileCombo?.SelectedItem is not string name || name == settings.ActiveKeyProfile) return;
+        if (IsKeyProfileDirty() && AppDialog.Show(this, "当前键位配置有尚未保存的修改。切换后这些草稿会丢失，仍要切换吗？", "未保存的键位草稿", MessageBoxButton.YesNo, MessageBoxImage.Warning) != MessageBoxResult.Yes) { switchingKeyProfile = true; keyProfileCombo.SelectedItem = settings.ActiveKeyProfile; switchingKeyProfile = false; return; }
+        settings.ActiveKeyProfile = name; ApplyKeyProfileDraft(); StatusText.Text = $"已切换键位配置：{name}";
     }
     private void ApplyKeyProfileDraft()
     {
@@ -329,7 +331,26 @@ public partial class MainWindow : Window
     }
     private void PackProfile_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
-        if (switchingProfile || packProfileCombo?.SelectedItem is not string name || name == settings.ActivePackProfile) return; settings.ActivePackProfile = name; ReloadLibraries(); StatusText.Text = $"已切换资源包配置：{name}";
+        if (switchingProfile || packProfileCombo?.SelectedItem is not string name || name == settings.ActivePackProfile) return;
+        if (IsPackProfileDirty() && AppDialog.Show(this, "当前资源包配置有尚未保存的修改。切换后这些草稿会丢失，仍要切换吗？", "未保存的资源包草稿", MessageBoxButton.YesNo, MessageBoxImage.Warning) != MessageBoxResult.Yes) { switchingProfile = true; packProfileCombo.SelectedItem = settings.ActivePackProfile; switchingProfile = false; return; }
+        settings.ActivePackProfile = name; ReloadLibraries(); StatusText.Text = $"已切换资源包配置：{name}";
+    }
+
+    private bool IsPackProfileDirty()
+    {
+        if (!settings.PackProfiles.TryGetValue(settings.ActivePackProfile, out var profile)) return packs.Count > 0;
+        return !profile.PackOrder.SequenceEqual(packs.Select(item => item.Name), StringComparer.OrdinalIgnoreCase)
+            || !profile.EnabledPacks.ToHashSet(StringComparer.OrdinalIgnoreCase).SetEquals(packs.Where(item => item.Enabled).Select(item => item.Name));
+    }
+
+    private bool IsKeyProfileDirty()
+    {
+        if (!settings.KeyProfiles.TryGetValue(settings.ActiveKeyProfile, out var profile)) return allKeys.Any(item => item.Remember || !item.CountsAsConflict);
+        var excluded = allKeys.Where(item => !item.CountsAsConflict).Select(item => item.OptionKey).ToHashSet(StringComparer.Ordinal);
+        if (!excluded.SetEquals(profile.ConflictExcluded ?? [])) return true;
+        var current = allKeys.Where(item => item.Remember).ToDictionary(item => item.ModId + "\0" + item.OptionKey, item => item.Value, StringComparer.Ordinal);
+        var saved = profile.ModBindings.SelectMany(mod => mod.Value.Select(item => new KeyValuePair<string, string>(mod.Key + "\0" + item.Key, item.Value))).ToDictionary(item => item.Key, item => item.Value, StringComparer.Ordinal);
+        return current.Count != saved.Count || current.Any(item => !saved.TryGetValue(item.Key, out var value) || value != item.Value);
     }
     private void AddPackProfile_Click(object sender, RoutedEventArgs e)
     {
