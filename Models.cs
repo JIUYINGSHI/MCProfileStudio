@@ -59,6 +59,43 @@ public class AppSettings
     public Dictionary<string, PackProfile> PackProfiles { get; set; } = new(StringComparer.OrdinalIgnoreCase);
     public string ActiveModConfigProfile { get; set; } = "默认 Mod 配置";
     public string ModConfigLanguage { get; set; } = "中文优先";
+    public List<FavoriteMod> FavoriteMods { get; set; } = [];
+    public string CurseForgeApiKey { get; set; } = "";
+    public string PreferredMinecraftVersion { get; set; } = "";
+    public string PreferredModLoader { get; set; } = "";
+}
+
+public class FavoriteMod
+{
+    public string Source { get; set; } = "Modrinth";
+    public string ProjectId { get; set; } = "";
+    public string Slug { get; set; } = "";
+    public string Name { get; set; } = "";
+    public string Description { get; set; } = "";
+    public string IconUrl { get; set; } = "";
+}
+
+public class ModSearchResult
+{
+    public string Source { get; set; } = "";
+    public string ProjectId { get; set; } = "";
+    public string Slug { get; set; } = "";
+    public string Name { get; set; } = "";
+    public string Description { get; set; } = "";
+    public string IconUrl { get; set; } = "";
+    public long Downloads { get; set; }
+}
+
+public class ModDownloadVersion
+{
+    public string Id { get; set; } = "";
+    public string DisplayName { get; set; } = "";
+    public string VersionNumber { get; set; } = "";
+    public string FileName { get; set; } = "";
+    public string DownloadUrl { get; set; } = "";
+    public string Source { get; set; } = "";
+    public string ProjectId { get; set; } = "";
+    public override string ToString() => $"{DisplayName}  ·  {FileName}";
 }
 
 public class PackProfile

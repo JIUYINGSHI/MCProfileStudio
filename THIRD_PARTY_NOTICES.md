@@ -13,3 +13,13 @@ JAR matching. It is not affiliated with or endorsed by PCL2 or MC 百科.
 - PCL2 repository: https://github.com/Hex-Dragon/PCL2
 - PCL2 licence: https://github.com/Hex-Dragon/PCL2/blob/main/LICENCE
 - MC 百科: https://www.mcmod.cn/
+
+## Mod distribution APIs
+
+The optional Mod favorite/search/download feature communicates directly with
+the public Modrinth API and, when the user supplies their own API key, the
+official CurseForge for Studios API. MC Profile Studio is not affiliated with
+or endorsed by Modrinth or CurseForge.
+
+- Modrinth API: https://docs.modrinth.com/api/
+- CurseForge for Studios API: https://docs.curseforge.com/rest-api/

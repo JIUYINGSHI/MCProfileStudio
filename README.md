@@ -15,6 +15,9 @@
 - 可直接导入任意 `options.txt`，并按需选择资源包排序、光影选择或键位；导入内容先进入草稿。
 - 资源包和键位支持多套命名配置，只有点击“保存配置”才会持久化修改。
 - 资源包、键位和 Mod 配置均可删除当前方案；删除前会确认并立即持久化，且每一类至少保留一套配置。
+- 新增“Mod 收藏与下载”页面：可按 Minecraft 版本、加载器和来源搜索 Modrinth/CurseForge 项目并收藏；导入实例后自动识别环境，首页显示收藏 Mod 的已安装/缺失状态。
+- 缺失收藏不会自动下载。点击首页检查按钮后，会在独立窗口中逐项勾选，并为每个 Mod 手动选择该 Minecraft 版本与加载器下的具体文件版本，确认后才写入实例 `mods` 目录。
+- Modrinth 使用公开 API；CurseForge 官方 API 强制要求 API Key，软件提供仅存储于本机设置的 Key 输入框。未配置 Key 时“全部来源”自动降级为仅搜索 Modrinth。
 - 独立的“Mod 配置”页面可管理 Tweakeroo、Litematica、Inventory Profiles Next、TweakerMore、Item Scroller、MiniHUD 与 MaLiLib 自有配置；按游戏内分类编辑开关、快捷键和列表，并将整套配置保存后按已安装 Mod 一键覆盖到新实例。
 - Mod 配置标签与说明直接读取已安装 Mod JAR 内的 `zh_cn.json` / `en_us.json`，支持中文优先、中英双语和英文三种显示方式；新版本新增配置无需等待软件更新翻译表。
 - 配置翻译采用兼容式管线：对任意 camelCase、snake_case 和点分路径自动拆词，模糊匹配 Mod 自带 i18n 后再以全局 Minecraft/配置术语组合翻译，不为单个 Mod 硬编码整页译名；Minecraft 颜色等常见枚举会显示为中文下拉选项，同时保持写回原始内部值。
