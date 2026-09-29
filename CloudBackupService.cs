@@ -71,12 +71,26 @@ internal static class CloudBackupService
     public static async Task TestAsync(WebDavOptions options, CancellationToken token)
     {
         using var client = CreateClient(options);
-        using var request = CreateRequest(options, new HttpMethod("PROPFIND"), BuildUri(options, ""));
-        request.Headers.TryAddWithoutValidation("Depth", "0");
-        request.Content = new StringContent("<?xml version=\"1.0\"?><propfind xmlns=\"DAV:\"><prop><resourcetype/></prop></propfind>", Encoding.UTF8, "application/xml");
-        using var response = await client.SendAsync(request, token);
+        using var response = await SendPropFindAsync(client, options, BuildUri(options, ""), token);
         if (response.StatusCode is HttpStatusCode.NotFound) throw new InvalidOperationException("远程目录不存在，请先执行上传备份以自动创建。服务器连接正常。");
         EnsureSuccess(response, "连接测试");
+    }
+
+    private static async Task<HttpResponseMessage> SendPropFindAsync(HttpClient client, WebDavOptions options, Uri initialUri, CancellationToken token)
+    {
+        var uri = initialUri;
+        for (var redirects = 0; redirects <= 5; redirects++)
+        {
+            using var request = CreateRequest(options, new HttpMethod("PROPFIND"), uri);
+            request.Headers.TryAddWithoutValidation("Depth", "0");
+            request.Content = new StringContent("<?xml version=\"1.0\"?><propfind xmlns=\"DAV:\"><prop><resourcetype/></prop></propfind>", Encoding.UTF8, "application/xml");
+            var response = await client.SendAsync(request, token);
+            if ((int)response.StatusCode is not (301 or 302 or 307 or 308) || response.Headers.Location == null) return response;
+            var next = response.Headers.Location.IsAbsoluteUri ? response.Headers.Location : new Uri(uri, response.Headers.Location);
+            if (!SameServer(uri, next) || (uri.Scheme == Uri.UriSchemeHttps && next.Scheme != Uri.UriSchemeHttps)) { response.Dispose(); throw new HttpRequestException("WebDAV 返回了跨服务器或 HTTPS 降级重定向，已阻止发送登录凭据。"); }
+            response.Dispose(); uri = next;
+        }
+        throw new HttpRequestException("WebDAV 重定向次数过多。");
     }
 
     public static async Task UploadAsync(WebDavOptions options, AppSettings settings, CancellationToken token)
@@ -176,8 +190,9 @@ internal static class CloudBackupService
     }
     private static Uri BuildUri(WebDavOptions options, string file)
     {
-        var root = new Uri(options.Url.TrimEnd('/') + "/"); var pieces = options.RemotePath.Split(['/', '\\'], StringSplitOptions.RemoveEmptyEntries).Append(file).Where(x => !string.IsNullOrWhiteSpace(x)).Select(Uri.EscapeDataString); return new Uri(root, string.Join('/', pieces));
+        var root = new Uri(options.Url.TrimEnd('/') + "/"); var pieces = options.RemotePath.Split(['/', '\\'], StringSplitOptions.RemoveEmptyEntries).Append(file).Where(x => !string.IsNullOrWhiteSpace(x)).Select(Uri.EscapeDataString); var relative = string.Join('/', pieces); if (string.IsNullOrWhiteSpace(file) && !relative.EndsWith('/')) relative += "/"; return new Uri(root, relative);
     }
+    private static bool SameServer(Uri left, Uri right) => left.Scheme.Equals(right.Scheme, StringComparison.OrdinalIgnoreCase) && left.Host.Equals(right.Host, StringComparison.OrdinalIgnoreCase) && left.Port == right.Port;
     private static async Task EnsureRemoteFoldersAsync(HttpClient client, WebDavOptions options, CancellationToken token)
     {
         var current = "";
