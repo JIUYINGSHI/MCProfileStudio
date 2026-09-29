@@ -88,16 +88,16 @@ public partial class MainWindow : Window
 
     private void BuildDraftControls()
     {
-        if (FindLogicalParent<WrapPanel>(FindButtonByContent(HomePage, "选择固定资源包目录")) is { } homeButtons)
+        if (FindLogicalParent<StackPanel>(FindButtonByContent(ShadersPage, "更改光影包目录")) is { } shaderTools)
         {
-            var import = new Button { Content = "导入 options.txt", Margin = new Thickness(0, 0, 10, 0) }; import.Click += ImportOptions_Click; homeButtons.Children.Insert(0, import);
+            var import = new Button { Content = "从 options.txt 导入光影选择", Margin = new Thickness(0, 9, 0, 0), Background = new SolidColorBrush(Color.FromRgb(56, 71, 86)) }; import.Click += ImportShaderOptions_Click; shaderTools.Children.Add(import);
         }
         if (FindLogicalParent<StackPanel>(CaptureButton) is not { } editor) return;
         KeyOccupancyList.Visibility = Visibility.Collapsed;
         var box = new Border { Background = new SolidColorBrush(Color.FromArgb(56, 26, 42, 56)), CornerRadius = new CornerRadius(10), Padding = new Thickness(10), Margin = new Thickness(0, 8, 0, 10) };
         var content = new StackPanel(); content.Children.Add(new TextBlock { Text = "键位配置草稿", Foreground = new SolidColorBrush(Color.FromRgb(175, 199, 221)), Margin = new Thickness(0, 0, 0, 7) });
         keyProfileCombo = new ComboBox(); keyProfileCombo.SelectionChanged += KeyProfile_SelectionChanged; content.Children.Add(keyProfileCombo);
-        var buttons = new WrapPanel { Margin = new Thickness(0, 8, 0, 0) }; var add = new Button { Content = "新建", Padding = new Thickness(12, 6, 12, 6) }; add.Click += AddKeyProfile_Click; var rename = new Button { Content = "重命名", Padding = new Thickness(12, 6, 12, 6), Margin = new Thickness(6, 0, 0, 0), Background = new SolidColorBrush(Color.FromRgb(56, 71, 86)) }; rename.Click += RenameKeyProfile_Click; var delete = new Button { Content = "删除", Padding = new Thickness(12, 6, 12, 6), Margin = new Thickness(6, 0, 0, 0), Background = new SolidColorBrush(Color.FromRgb(112, 48, 56)) }; delete.Click += DeleteKeyProfile_Click; var save = new Button { Content = "保存配置", Padding = new Thickness(12, 6, 12, 6), Margin = new Thickness(6, 0, 0, 0) }; save.Click += SaveKeyProfile_Click; buttons.Children.Add(add); buttons.Children.Add(rename); buttons.Children.Add(delete); buttons.Children.Add(save); content.Children.Add(buttons); box.Child = content; editor.Children.Insert(3, box); RefreshKeyProfileSelector();
+        var buttons = new WrapPanel { Margin = new Thickness(0, 8, 0, 0) }; var importKeys = new Button { Content = "导入 options.txt", Padding = new Thickness(12, 6, 12, 6), Background = new SolidColorBrush(Color.FromRgb(56, 71, 86)) }; importKeys.Click += ImportKeyOptions_Click; var add = new Button { Content = "新建", Padding = new Thickness(12, 6, 12, 6), Margin = new Thickness(6, 0, 0, 0) }; add.Click += AddKeyProfile_Click; var rename = new Button { Content = "重命名", Padding = new Thickness(12, 6, 12, 6), Margin = new Thickness(6, 0, 0, 0), Background = new SolidColorBrush(Color.FromRgb(56, 71, 86)) }; rename.Click += RenameKeyProfile_Click; var delete = new Button { Content = "删除", Padding = new Thickness(12, 6, 12, 6), Margin = new Thickness(6, 0, 0, 0), Background = new SolidColorBrush(Color.FromRgb(112, 48, 56)) }; delete.Click += DeleteKeyProfile_Click; var save = new Button { Content = "保存配置", Padding = new Thickness(12, 6, 12, 6), Margin = new Thickness(6, 0, 0, 0) }; save.Click += SaveKeyProfile_Click; buttons.Children.Add(importKeys); buttons.Children.Add(add); buttons.Children.Add(rename); buttons.Children.Add(delete); buttons.Children.Add(save); content.Children.Add(buttons); box.Child = content; editor.Children.Insert(3, box); RefreshKeyProfileSelector();
         countConflictCheck = new CheckBox { Content = "计入冲突检测", IsChecked = true, Margin = new Thickness(0, 8, 0, 8), ToolTip = "关闭后，这个功能即使与其他功能使用同一按键，也不会被标为冲突。" };
         countConflictCheck.Checked += ConflictParticipation_Changed; countConflictCheck.Unchecked += ConflictParticipation_Changed;
         if (FindButtonByContent(editor, "清除绑定") is { } clearButton) editor.Children.Insert(editor.Children.IndexOf(clearButton) + 1, countConflictCheck); else editor.Children.Add(countConflictCheck);
@@ -149,6 +149,37 @@ public partial class MainWindow : Window
         var packResult = choice.Value.Packs ? $"{importedPackCount} 个启用资源包" : "未导入资源包";
         var keyResult = choice.Value.Keys ? $"{changedKeyCount} 个键位与已保存方案不同" : "未导入键位";
         StatusText.Text = $"已导入 {Path.GetFileName(picker.FileName)}：{packResult}，{keyResult}（尚未保存）";
+    }
+
+    private string? PickOptionsFile(string purpose)
+    {
+        var picker = new OpenFileDialog { Title = $"选择要导入{purpose}的 options.txt", Filter = "Minecraft options.txt|options.txt|文本文件|*.txt|所有文件|*.*", Multiselect = false };
+        return picker.ShowDialog(this) == true ? picker.FileName : null;
+    }
+
+    private void ImportPackOptions_Click(object? sender, RoutedEventArgs e)
+    {
+        var file = PickOptionsFile("资源包配置"); if (file == null) return; var options = MinecraftConfig.ReadOptionsFile(file);
+        if (!options.TryGetValue("resourcePacks", out var raw)) { AppDialog.Show(this, "该文件中没有 resourcePacks 配置。", "无法导入", MessageBoxButton.OK, MessageBoxImage.Warning); return; }
+        var imported = MinecraftConfig.ParseResourcePacks(raw); ApplyImportedPackDraft(imported, Path.GetDirectoryName(file) ?? ""); if (packProfileCombo != null) packProfileCombo.ToolTip = "当前显示从 options.txt 导入的资源包草稿";
+        StatusText.Text = $"已从 {Path.GetFileName(file)} 导入 {imported.Count} 个启用资源包（尚未保存）";
+    }
+
+    private void ImportShaderOptions_Click(object? sender, RoutedEventArgs e)
+    {
+        var file = PickOptionsFile("光影选择"); if (file == null) return; var shader = MinecraftConfig.ReadShaderSelection(Path.GetDirectoryName(file) ?? "");
+        if (string.IsNullOrWhiteSpace(shader)) { AppDialog.Show(this, "没有在 options.txt 同目录的 Iris 或 OptiFine 配置中找到光影选择。", "无法导入", MessageBoxButton.OK, MessageBoxImage.Warning); return; }
+        draftSelectedShader = shader; ShaderList.SelectedItem = shaders.FirstOrDefault(item => item.Name.Equals(shader, StringComparison.OrdinalIgnoreCase)); SelectedShaderName.Text = shader;
+        StatusText.Text = $"已导入光影选择：{shader}（尚未保存）";
+    }
+
+    private void ImportKeyOptions_Click(object? sender, RoutedEventArgs e)
+    {
+        var file = PickOptionsFile("键位配置"); if (file == null) return; var options = MinecraftConfig.ReadOptionsFile(file);
+        if (!options.Keys.Any(key => key.StartsWith("key_", StringComparison.Ordinal))) { AppDialog.Show(this, "该文件中没有键位配置。", "无法导入", MessageBoxButton.OK, MessageBoxImage.Warning); return; }
+        var changed = CountImportedKeyDifferences(options); var directory = Path.GetDirectoryName(file) ?? ""; instance = directory; InstanceLabel.Text = directory; LoadKeysFromOptions(options, directory, true);
+        KeySearch.Clear(); ConflictOnly.IsChecked = false; selectedPhysicalKey = null; if (ModFilter.Items.Count > 0) ModFilter.SelectedIndex = 0; RefreshKeyList(); if (keyProfileCombo != null) keyProfileCombo.ToolTip = "当前显示从 options.txt 导入的键位草稿";
+        StatusText.Text = $"已从 {Path.GetFileName(file)} 导入键位：{changed} 项与已保存方案不同（尚未保存）";
     }
 
     private int CountImportedKeyDifferences(IReadOnlyDictionary<string, string> importedOptions)
@@ -290,9 +321,9 @@ public partial class MainWindow : Window
     {
         var template = new DataTemplate { VisualTree = new FrameworkElementFactory(typeof(PackCard)) }; PacksPage.Children.Clear(); PacksPage.ColumnDefinitions.Clear(); PacksPage.RowDefinitions.Clear(); PacksPage.RowDefinitions.Add(new() { Height = GridLength.Auto }); PacksPage.RowDefinitions.Add(new() { Height = new GridLength(1, GridUnitType.Star) });
         PacksPage.ColumnDefinitions.Add(new() { Width = new GridLength(1, GridUnitType.Star) }); PacksPage.ColumnDefinitions.Add(new() { Width = new GridLength(1, GridUnitType.Star) });
-        var profileBar = new DockPanel { Margin = new Thickness(0, 0, 0, 14), LastChildFill = false };
+        var profileBar = new StackPanel { Margin = new Thickness(0, 0, 0, 14) };
         var profileTools = new StackPanel { Orientation = Orientation.Horizontal }; profileTools.Children.Add(new TextBlock { Text = "资源包配置", Foreground = Brushes.White, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 12, 0), FontSize = 15 }); packProfileCombo = new ComboBox { Width = 210, ItemsSource = settings.PackProfiles.Keys.Order().ToList(), SelectedItem = settings.ActivePackProfile }; packProfileCombo.SelectionChanged += PackProfile_SelectionChanged; var add = new Button { Content = "新建", Margin = new Thickness(8, 0, 0, 0) }; add.Click += AddPackProfile_Click; var rename = new Button { Content = "重命名", Background = new SolidColorBrush(Color.FromRgb(56, 71, 86)), Margin = new Thickness(6, 0, 0, 0) }; rename.Click += RenamePackProfile_Click; var delete = new Button { Content = "删除", Background = new SolidColorBrush(Color.FromRgb(112, 48, 56)), Margin = new Thickness(6, 0, 0, 0) }; delete.Click += DeletePackProfile_Click; var saveProfile = new Button { Content = "保存配置", Margin = new Thickness(6, 0, 0, 0) }; saveProfile.Click += (_, _) => SavePackProfile(); profileTools.Children.Add(packProfileCombo); profileTools.Children.Add(add); profileTools.Children.Add(rename); profileTools.Children.Add(delete); profileTools.Children.Add(saveProfile);
-        var batchTools = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right }; DockPanel.SetDock(batchTools, Dock.Right); var enable = new Button { Content = "全部启用 →", Padding = new Thickness(13, 7, 13, 7) }; enable.Click += (_, _) => { foreach (var p in packs) p.Enabled = true; RefreshPackColumns(); StatusText.Text = "资源包配置已修改（尚未保存）"; }; var disable = new Button { Content = "全部关闭", Padding = new Thickness(13, 7, 13, 7), Background = new SolidColorBrush(Color.FromRgb(56, 71, 86)), Margin = new Thickness(8, 0, 0, 0) }; disable.Click += (_, _) => { foreach (var p in packs) p.Enabled = false; RefreshPackColumns(); StatusText.Text = "资源包配置已修改（尚未保存）"; }; batchTools.Children.Add(enable); batchTools.Children.Add(disable); profileBar.Children.Add(batchTools); profileBar.Children.Add(profileTools); Grid.SetColumnSpan(profileBar, 2); PacksPage.Children.Add(profileBar);
+        var batchTools = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Left, Margin = new Thickness(0, 9, 0, 0) }; var import = new Button { Content = "导入 options.txt", Padding = new Thickness(13, 7, 13, 7), Background = new SolidColorBrush(Color.FromRgb(56, 71, 86)), Margin = new Thickness(0, 0, 8, 0) }; import.Click += ImportPackOptions_Click; var enable = new Button { Content = "全部启用 →", Padding = new Thickness(13, 7, 13, 7) }; enable.Click += (_, _) => { foreach (var p in packs) p.Enabled = true; RefreshPackColumns(); StatusText.Text = "资源包配置已修改（尚未保存）"; }; var disable = new Button { Content = "全部关闭", Padding = new Thickness(13, 7, 13, 7), Background = new SolidColorBrush(Color.FromRgb(56, 71, 86)), Margin = new Thickness(8, 0, 0, 0) }; disable.Click += (_, _) => { foreach (var p in packs) p.Enabled = false; RefreshPackColumns(); StatusText.Text = "资源包配置已修改（尚未保存）"; }; batchTools.Children.Add(import); batchTools.Children.Add(enable); batchTools.Children.Add(disable); profileBar.Children.Add(profileTools); profileBar.Children.Add(batchTools); Grid.SetColumnSpan(profileBar, 2); PacksPage.Children.Add(profileBar);
         disabledPackList = CreatePackColumn("未应用的资源包", template, false, 0); enabledPackList = CreatePackColumn("已应用的资源包（上方优先）", template, true, 1);
     }
     private ListBox CreatePackColumn(string title, DataTemplate template, bool enabled, int column)
