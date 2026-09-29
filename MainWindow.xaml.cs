@@ -443,11 +443,11 @@ public partial class MainWindow : Window
     private void KeyFilterChanged(object sender, EventArgs e) { if (IsLoaded) RefreshKeyList(); }
     private void RefreshKeyList()
     {
-        if (KeyList == null) return; IEnumerable<KeyBindingItem> q = allKeys; if (!string.IsNullOrWhiteSpace(selectedPhysicalKey)) q = q.Where(k => NormalizeKeyLabel(k.KeyLabel.Split(':')[0]).Equals(selectedPhysicalKey, StringComparison.OrdinalIgnoreCase)); if (!string.IsNullOrWhiteSpace(KeySearch.Text)) q = q.Where(k => (k.FunctionDisplay + k.OptionKey + k.ModDisplayName + k.ModId + k.KeyLabel).Contains(KeySearch.Text, StringComparison.OrdinalIgnoreCase)); if (ModFilter.SelectedItem is string mod && mod != "全部有键位的 Mod") q = q.Where(k => k.ModDisplayName == mod); if (ConflictOnly.IsChecked == true) { var c = allKeys.Where(k => k.CountsAsConflict && !k.Value.EndsWith("unknown")).GroupBy(k => k.Value).Where(g => g.Count() > 1).Select(g => g.Key).ToHashSet(); q = q.Where(k => k.CountsAsConflict && c.Contains(k.Value)); } KeyList.ItemsSource = q.ToList();
+        if (KeyList == null) return; IEnumerable<KeyBindingItem> q = allKeys; if (!string.IsNullOrWhiteSpace(selectedPhysicalKey)) q = q.Where(k => GetPhysicalKey(k.Value).Equals(selectedPhysicalKey, StringComparison.OrdinalIgnoreCase)); if (!string.IsNullOrWhiteSpace(KeySearch.Text)) q = q.Where(k => (k.FunctionDisplay + k.OptionKey + k.ModDisplayName + k.ModId + k.KeyLabel).Contains(KeySearch.Text, StringComparison.OrdinalIgnoreCase)); if (ModFilter.SelectedItem is string mod && mod != "全部有键位的 Mod") q = q.Where(k => k.ModDisplayName == mod); if (ConflictOnly.IsChecked == true) { var c = allKeys.Where(k => k.CountsAsConflict && !k.Value.EndsWith("unknown")).GroupBy(k => k.Value).Where(g => g.Count() > 1).Select(g => g.Key).ToHashSet(); q = q.Where(k => k.CountsAsConflict && c.Contains(k.Value)); } KeyList.ItemsSource = q.ToList();
     }
     private void BuildKeyboard()
     {
-        KeyboardPanel.Children.Clear(); var active = allKeys.Where(k => !k.Value.Contains("unknown", StringComparison.OrdinalIgnoreCase)).ToList(); var counts = active.GroupBy(k => NormalizeKeyLabel(k.KeyLabel.Split(':')[0])).ToDictionary(g => g.Key, g => g.Count(), StringComparer.OrdinalIgnoreCase); var conflictKeys = active.Where(k => k.CountsAsConflict).GroupBy(k => k.Value, StringComparer.OrdinalIgnoreCase).Where(g => g.Count() > 1).Select(g => NormalizeKeyLabel(g.First().KeyLabel.Split(':')[0])).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        KeyboardPanel.Children.Clear(); var active = allKeys.Where(k => !k.Value.Contains("unknown", StringComparison.OrdinalIgnoreCase)).ToList(); var counts = active.GroupBy(k => GetPhysicalKey(k.Value)).ToDictionary(g => g.Key, g => g.Count(), StringComparer.OrdinalIgnoreCase); var conflictKeys = active.Where(k => k.CountsAsConflict).GroupBy(k => k.Value, StringComparer.OrdinalIgnoreCase).Where(g => g.Count() > 1).Select(g => GetPhysicalKey(g.First().Value)).ToHashSet(StringComparer.OrdinalIgnoreCase);
         var selectedLayout = LayoutCombo.SelectedItem as string ?? "108 键全尺寸"; if (!KeyboardLayouts.TryGetValue(selectedLayout, out var rows)) rows = KeyboardLayouts["108 键全尺寸"];
         foreach (var row in rows)
         {
@@ -455,7 +455,7 @@ public partial class MainWindow : Window
             foreach (var key in row)
             {
                 counts.TryGetValue(key, out var used); var width = key switch { "SPACE" => 245, "BACKSPACE" or "RSHIFT" or "LSHIFT" or "ENTER" => 92, "CAPS" or "TAB" => 72, _ => 48 };
-                panel.Children.Add(CreateInputKeyButton(key, key, used, conflictKeys.Contains(key), width, 46));
+                panel.Children.Add(CreateInputKeyButton(key, GetPhysicalKeyLabel(key), used, conflictKeys.Contains(key), width, 46));
             }
             KeyboardPanel.Children.Add(panel);
         }
@@ -489,8 +489,23 @@ public partial class MainWindow : Window
     }
 
     private void FitKeyboard() { if (KeyboardPanel != null) KeyboardPanel.LayoutTransform = Transform.Identity; }
-    private static string NormalizeKeyLabel(string key) => key.Replace("LEFT ", "L").Replace("RIGHT ", "R").Replace("LEFT", "L").Replace("RIGHT", "R").Replace("RETURN", "ENTER").Replace("OEM", "").Trim();
-    private void KeyboardKey_Click(object sender, RoutedEventArgs e) { var key = (string)((Button)sender).Tag; selectedPhysicalKey = selectedPhysicalKey?.Equals(key, StringComparison.OrdinalIgnoreCase) == true ? null : key; KeyList.SelectedItem = null; RefreshKeyList(); var matches = string.IsNullOrWhiteSpace(selectedPhysicalKey) ? [] : allKeys.Where(k => NormalizeKeyLabel(k.KeyLabel.Split(':')[0]).Equals(selectedPhysicalKey, StringComparison.OrdinalIgnoreCase)).ToList(); SelectedKeyName.Text = selectedPhysicalKey == null ? "未选择键帽：左侧显示全部键位功能" : $"{selectedPhysicalKey}：左侧显示 {matches.Count} 个占用功能"; SelectedKeyMod.Text = selectedPhysicalKey == null ? "" : "请在左侧选择具体功能进行编辑；再次点击该键帽可取消筛选。"; BuildKeyboard(); }
+    private static string GetPhysicalKey(string value)
+    {
+        var main = value.Split(':', 2)[0];
+        if (main.StartsWith("key.mouse.", StringComparison.OrdinalIgnoreCase)) return "鼠标 " + main[10..].ToUpperInvariant();
+        var key = main.StartsWith("key.keyboard.", StringComparison.OrdinalIgnoreCase) ? main[13..].ToLowerInvariant() : main.ToLowerInvariant();
+        if (key.StartsWith("keypad.")) return "NUM" + key[7..] switch { "decimal" => ".", "add" => "+", "subtract" => "-", "multiply" => "*", "divide" => "/", "enter" => "ENTER", "equal" => "=", var name => name.ToUpperInvariant() };
+        return key switch
+        {
+            "grave.accent" or "grave" => "`", "apostrophe" or "quote" => "'", "semicolon" => ";", "left.bracket" => "[", "right.bracket" => "]", "backslash" => "\\",
+            "comma" => ",", "period" => ".", "slash" => "/", "minus" => "-", "equal" => "=", "left.shift" => "LSHIFT", "right.shift" => "RSHIFT",
+            "left.control" => "LCTRL", "right.control" => "RCTRL", "left.alt" => "LALT", "right.alt" => "RALT", "left.super" => "LWIN", "right.super" => "RWIN",
+            "return" => "ENTER", "escape" => "ESC", "delete" => "DEL", "insert" => "INS", "caps.lock" => "CAPS", "num.lock" => "NUMLOCK",
+            "page.up" => "PGUP", "page.down" => "PGDN", "print.screen" => "PRTSC", "scroll.lock" => "SCRLK", var name => name.ToUpperInvariant()
+        };
+    }
+    private static string GetPhysicalKeyLabel(string key) => key.StartsWith("NUM", StringComparison.Ordinal) && key != "NUMLOCK" ? key[3..] : key;
+    private void KeyboardKey_Click(object sender, RoutedEventArgs e) { var key = (string)((Button)sender).Tag; selectedPhysicalKey = selectedPhysicalKey?.Equals(key, StringComparison.OrdinalIgnoreCase) == true ? null : key; KeyList.SelectedItem = null; RefreshKeyList(); var matches = string.IsNullOrWhiteSpace(selectedPhysicalKey) ? [] : allKeys.Where(k => GetPhysicalKey(k.Value).Equals(selectedPhysicalKey, StringComparison.OrdinalIgnoreCase)).ToList(); SelectedKeyName.Text = selectedPhysicalKey == null ? "未选择键帽：左侧显示全部键位功能" : $"{GetPhysicalKeyLabel(selectedPhysicalKey)}：左侧显示 {matches.Count} 个占用功能"; SelectedKeyMod.Text = selectedPhysicalKey == null ? "" : "请在左侧选择具体功能进行编辑；再次点击该键帽可取消筛选。"; BuildKeyboard(); }
     private void LayoutCombo_SelectionChanged(object sender, SelectionChangedEventArgs e) { if (!IsLoaded || LayoutCombo.SelectedItem is not string layout) return; settings.KeyboardLayout = layout; SettingsStore.Save(settings); BuildKeyboard(); }
     private KeyBindingItem? SelectedKey => KeyList.SelectedItem as KeyBindingItem;
     private void KeyList_SelectionChanged(object sender, SelectionChangedEventArgs e) { if (SelectedKey is not { } k) return; SelectedKeyName.Text = k.FunctionDisplay; SelectedKeyMod.Text = k.ModDisplayName + (k.IsLibrary ? "  ·  前置/依赖库" : ""); RememberKey.IsChecked = k.Remember; syncingConflictCheck = true; if (countConflictCheck != null) countConflictCheck.IsChecked = k.CountsAsConflict; syncingConflictCheck = false; CaptureButton.Content = $"当前：{k.KeyLabel}（点击重新绑定）"; }
@@ -520,14 +535,14 @@ public partial class MainWindow : Window
             ["65 / 68 键"] = compact.Select((r,i) => i == 4 ? r.Concat(Row("LEFT DOWN RIGHT")).ToArray() : r).ToArray(),
             ["75 / 84 键"] = new[] { Row("ESC F1 F2 F3 F4 F5 F6 F7 F8 F9 F10 F11 F12 DEL"), Row("` 1 2 3 4 5 6 7 8 9 0 - = BACKSPACE"), Row("TAB Q W E R T Y U I O P [ ] \\"), Row("CAPS A S D F G H J K L ; ' ENTER"), Row("LSHIFT Z X C V B N M , . / RSHIFT UP"), Row("LCTRL LWIN LALT SPACE RALT FN RCTRL LEFT DOWN RIGHT") },
             ["80 / 87 键 TKL"] = new[] { Row("ESC F1 F2 F3 F4 F5 F6 F7 F8 F9 F10 F11 F12 PRTSC SCRLK PAUSE"), Row("` 1 2 3 4 5 6 7 8 9 0 - = BACKSPACE INS HOME PGUP"), Row("TAB Q W E R T Y U I O P [ ] \\ DEL END PGDN"), Row("CAPS A S D F G H J K L ; ' ENTER"), Row("LSHIFT Z X C V B N M , . / RSHIFT UP"), Row("LCTRL LWIN LALT SPACE RALT FN RCTRL LEFT DOWN RIGHT") },
-            ["96 / 98 键"] = new[] { Row("ESC F1 F2 F3 F4 F5 F6 F7 F8 F9 F10 F11 F12 DEL HOME END"), Row("` 1 2 3 4 5 6 7 8 9 0 - = BACKSPACE NUMLOCK / *"), Row("TAB Q W E R T Y U I O P [ ] \\ 7 8 9"), Row("CAPS A S D F G H J K L ; ' ENTER 4 5 6"), Row("LSHIFT Z X C V B N M , . / RSHIFT UP 1 2 3"), Row("LCTRL LWIN LALT SPACE RALT FN RCTRL LEFT DOWN RIGHT 0 .") },
+            ["96 / 98 键"] = new[] { Row("ESC F1 F2 F3 F4 F5 F6 F7 F8 F9 F10 F11 F12 DEL HOME END"), Row("` 1 2 3 4 5 6 7 8 9 0 - = BACKSPACE NUMLOCK NUM/ NUM*"), Row("TAB Q W E R T Y U I O P [ ] \\ NUM7 NUM8 NUM9"), Row("CAPS A S D F G H J K L ; ' ENTER NUM4 NUM5 NUM6"), Row("LSHIFT Z X C V B N M , . / RSHIFT UP NUM1 NUM2 NUM3"), Row("LCTRL LWIN LALT SPACE RALT FN RCTRL LEFT DOWN RIGHT NUM0 NUM.") },
             ["104 键全尺寸"] = FullKeyboard(false), ["108 键全尺寸"] = FullKeyboard(true)
         }; return layouts;
     }
     private static string[][] FullKeyboard(bool extra)
     {
         string[] R(string value) => value.Split(' ', StringSplitOptions.RemoveEmptyEntries); var top = extra ? "ESC F1 F2 F3 F4 F5 F6 F7 F8 F9 F10 F11 F12 M1 M2 M3 M4 PRTSC SCRLK PAUSE" : "ESC F1 F2 F3 F4 F5 F6 F7 F8 F9 F10 F11 F12 PRTSC SCRLK PAUSE";
-        return new[] { R(top), R("` 1 2 3 4 5 6 7 8 9 0 - = BACKSPACE INS HOME PGUP NUMLOCK / * -"), R("TAB Q W E R T Y U I O P [ ] \\ DEL END PGDN 7 8 9 +"), R("CAPS A S D F G H J K L ; ' ENTER 4 5 6 +"), R("LSHIFT Z X C V B N M , . / RSHIFT UP 1 2 3 ENTER"), R("LCTRL LWIN LALT SPACE RALT FN RCTRL LEFT DOWN RIGHT 0 . ENTER") };
+        return new[] { R(top), R("` 1 2 3 4 5 6 7 8 9 0 - = BACKSPACE INS HOME PGUP NUMLOCK NUM/ NUM* NUM-"), R("TAB Q W E R T Y U I O P [ ] \\ DEL END PGDN NUM7 NUM8 NUM9 NUM+"), R("CAPS A S D F G H J K L ; ' ENTER NUM4 NUM5 NUM6 NUM+"), R("LSHIFT Z X C V B N M , . / RSHIFT UP NUM1 NUM2 NUM3 NUMENTER"), R("LCTRL LWIN LALT SPACE RALT FN RCTRL LEFT DOWN RIGHT NUM0 NUM. NUMENTER") };
     }
 
     private void TitleBar_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
