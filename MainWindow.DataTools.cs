@@ -10,6 +10,20 @@ public partial class MainWindow
 {
     private TextBlock? cloudBackupSummary;
 
+    private void EnableHomeScrolling()
+    {
+        if (HomePage.Children.OfType<StackPanel>().FirstOrDefault() is not { } content) return;
+        HomePage.Children.Remove(content);
+        HomePage.Children.Add(new ScrollViewer
+        {
+            Content = content,
+            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+            HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
+            PanningMode = PanningMode.VerticalOnly,
+            CanContentScroll = false
+        });
+    }
+
     private void BuildDataToolsCard()
     {
         if (HomePage.Children.OfType<StackPanel>().FirstOrDefault() is not { } home) return;

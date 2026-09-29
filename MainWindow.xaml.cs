@@ -36,7 +36,7 @@ public partial class MainWindow : Window
 
     public MainWindow()
     {
-        EnsurePackProfiles(); EnsureKeyProfiles(); EnsureFavoriteModProfiles(); draftSelectedShader = settings.SelectedShader; InitializeComponent(); ApplyMinecraftNavIcons(); PackList.ItemsSource = packs; ShaderList.ItemsSource = shaders; BuildPackManager(); BuildDraftControls(); BuildModConfigPage(); BuildFavoriteModsPage(); BuildDataToolsCard();
+        EnsurePackProfiles(); EnsureKeyProfiles(); EnsureFavoriteModProfiles(); draftSelectedShader = settings.SelectedShader; InitializeComponent(); ApplyMinecraftNavIcons(); PackList.ItemsSource = packs; ShaderList.ItemsSource = shaders; BuildPackManager(); BuildDraftControls(); BuildModConfigPage(); BuildFavoriteModsPage(); BuildDataToolsCard(); EnableHomeScrolling();
         LayoutCombo.ItemsSource = KeyboardLayouts.Keys; LayoutCombo.SelectedItem = KeyboardLayouts.ContainsKey(settings.KeyboardLayout) ? settings.KeyboardLayout : "108 键全尺寸";
         SourceInitialized += (_, _) => EnableMica(); Loaded += (_, _) => { ReloadLibraries(); RefreshSummary(); FitKeyboard(); }; SizeChanged += (_, _) => FitKeyboard();
     }
