@@ -480,18 +480,31 @@ public partial class MainWindow : Window
 
     private void BuildMouse(IReadOnlyDictionary<string, int> counts, IReadOnlySet<string> conflictKeys)
     {
-        MousePanel.Children.Clear();
-        var body = new Border { Width = 124, Height = 202, CornerRadius = new CornerRadius(54), Background = new SolidColorBrush(Color.FromArgb(120, 22, 34, 45)), BorderBrush = new SolidColorBrush(Color.FromRgb(76, 101, 124)), BorderThickness = new Thickness(2) }; MousePanel.Children.Add(body); Canvas.SetLeft(body, 16); Canvas.SetTop(body, 7);
-        var mouseKeys = new[]
+        MousePanel.Children.Clear(); MousePanel.Width = 190; MousePanel.Height = 224;
+        Brush RegionBrush(string key)
         {
-            ("鼠标 LEFT", "左键", 54d, 64d, 20d, 12d), ("鼠标 RIGHT", "右键", 54d, 64d, 82d, 12d),
-            ("鼠标 MIDDLE", "中", 20d, 48d, 66d, 15d), ("鼠标 4", "侧键 1", 34d, 48d, 3d, 82d), ("鼠标 5", "侧键 2", 34d, 48d, 3d, 136d)
-        };
-        foreach (var item in mouseKeys)
-        {
-            counts.TryGetValue(item.Item1, out var used); var button = CreateInputKeyButton(item.Item1, item.Item2, used, conflictKeys.Contains(item.Item1), item.Item3, item.Item4); button.Margin = new Thickness(0); MousePanel.Children.Add(button); Canvas.SetLeft(button, item.Item5); Canvas.SetTop(button, item.Item6);
+            counts.TryGetValue(key, out var used); return new SolidColorBrush(conflictKeys.Contains(key) ? Color.FromRgb(190, 64, 74) : used > 0 ? Color.FromRgb(0, 120, 212) : Color.FromRgb(43, 57, 70));
         }
-        var caption = new TextBlock { Text = "鼠标", Foreground = new SolidColorBrush(Color.FromRgb(166, 185, 203)), FontSize = 11, HorizontalAlignment = HorizontalAlignment.Center }; MousePanel.Children.Add(caption); Canvas.SetLeft(caption, 68); Canvas.SetTop(caption, 178);
+        var shell = new System.Windows.Shapes.Path { Data = Geometry.Parse("M95,5 C139,5 169,37 169,85 L169,145 C169,196 140,219 95,219 C50,219 21,196 21,145 L21,85 C21,37 51,5 95,5 Z"), Fill = new SolidColorBrush(Color.FromRgb(17, 27, 36)), Stroke = new SolidColorBrush(Color.FromRgb(86, 117, 143)), StrokeThickness = 2 }; MousePanel.Children.Add(shell);
+        void AddRegion(string key, string geometry, string label, double labelX, double labelY)
+        {
+            var region = new System.Windows.Shapes.Path { Data = Geometry.Parse(geometry), Fill = RegionBrush(key), Stroke = new SolidColorBrush(Color.FromRgb(90, 118, 141)), StrokeThickness = 1, Cursor = Cursors.Hand, Tag = key };
+            region.MouseLeftButtonDown += (_, e) => { e.Handled = true; SelectPhysicalKey((string)region.Tag); }; ToolTipService.SetToolTip(region, label); MousePanel.Children.Add(region);
+            counts.TryGetValue(key, out var used); var text = new TextBlock { Text = used > 0 ? $"{label}\n{used}" : label, Foreground = Brushes.White, FontSize = 10, FontWeight = FontWeights.SemiBold, TextAlignment = TextAlignment.Center, IsHitTestVisible = false }; MousePanel.Children.Add(text); Canvas.SetLeft(text, labelX); Canvas.SetTop(text, labelY);
+        }
+        AddRegion("鼠标 LEFT", "M28,81 C30,39 55,13 91,12 L91,82 Z", "左键", 46, 36);
+        AddRegion("鼠标 RIGHT", "M99,12 C135,13 160,39 162,81 L99,82 Z", "右键", 119, 36);
+        var divider = new System.Windows.Shapes.Line { X1 = 95, Y1 = 10, X2 = 95, Y2 = 87, Stroke = new SolidColorBrush(Color.FromRgb(9, 17, 24)), StrokeThickness = 3, IsHitTestVisible = false }; MousePanel.Children.Add(divider);
+        var wheelTrack = new Border { Width = 27, Height = 63, CornerRadius = new CornerRadius(13), Background = new SolidColorBrush(Color.FromRgb(11, 18, 25)), BorderBrush = new SolidColorBrush(Color.FromRgb(80, 105, 126)), BorderThickness = new Thickness(1) }; MousePanel.Children.Add(wheelTrack); Canvas.SetLeft(wheelTrack, 81.5); Canvas.SetTop(wheelTrack, 23);
+        counts.TryGetValue("鼠标 MIDDLE", out var middleUsed); var wheel = new Border { Width = 17, Height = 42, CornerRadius = new CornerRadius(8), Background = RegionBrush("鼠标 MIDDLE"), Cursor = Cursors.Hand, Tag = "鼠标 MIDDLE", ToolTip = "中键 / 滚轮按下" }; wheel.MouseLeftButtonDown += (_, e) => { e.Handled = true; SelectPhysicalKey("鼠标 MIDDLE"); }; MousePanel.Children.Add(wheel); Canvas.SetLeft(wheel, 86.5); Canvas.SetTop(wheel, 30);
+        for (var y = 37; y <= 61; y += 6) { var groove = new System.Windows.Shapes.Line { X1 = 90, X2 = 100, Y1 = y, Y2 = y, Stroke = new SolidColorBrush(Color.FromArgb(120, 220, 235, 248)), StrokeThickness = 1, IsHitTestVisible = false }; MousePanel.Children.Add(groove); }
+        if (middleUsed > 0) { var badge = new Border { Width = 20, Height = 20, CornerRadius = new CornerRadius(10), Background = new SolidColorBrush(Color.FromRgb(17, 28, 37)), IsHitTestVisible = false, Child = new TextBlock { Text = middleUsed.ToString(), Foreground = Brushes.White, FontSize = 10, FontWeight = FontWeights.Bold, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center } }; MousePanel.Children.Add(badge); Canvas.SetLeft(badge, 104); Canvas.SetTop(badge, 52); }
+        void AddSide(string key, string label, double top)
+        {
+            counts.TryGetValue(key, out var used); var side = new Border { Width = 45, Height = 30, CornerRadius = new CornerRadius(9, 4, 4, 9), Background = RegionBrush(key), BorderBrush = new SolidColorBrush(Color.FromRgb(90, 118, 141)), BorderThickness = new Thickness(1), Cursor = Cursors.Hand, Tag = key, ToolTip = label, Child = new TextBlock { Text = used > 0 ? $"{label}  {used}" : label, Foreground = Brushes.White, FontSize = 9, FontWeight = FontWeights.SemiBold, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center } }; side.MouseLeftButtonDown += (_, e) => { e.Handled = true; SelectPhysicalKey(key); }; MousePanel.Children.Add(side); Canvas.SetLeft(side, 4); Canvas.SetTop(side, top);
+        }
+        AddSide("鼠标 4", "侧键 4", 102); AddSide("鼠标 5", "侧键 5", 139);
+        var palm = new TextBlock { Text = "M O U S E", Foreground = new SolidColorBrush(Color.FromArgb(90, 150, 178, 201)), FontSize = 9, FontWeight = FontWeights.Bold, IsHitTestVisible = false }; MousePanel.Children.Add(palm); Canvas.SetLeft(palm, 67); Canvas.SetTop(palm, 174);
     }
 
     private void FitKeyboard() { if (KeyboardPanel != null) KeyboardPanel.LayoutTransform = Transform.Identity; }
@@ -511,7 +524,8 @@ public partial class MainWindow : Window
         };
     }
     private static string GetPhysicalKeyLabel(string key) => key.StartsWith("NUM", StringComparison.Ordinal) && key != "NUMLOCK" ? key[3..] : key;
-    private void KeyboardKey_Click(object sender, RoutedEventArgs e) { var key = (string)((Button)sender).Tag; selectedPhysicalKey = selectedPhysicalKey?.Equals(key, StringComparison.OrdinalIgnoreCase) == true ? null : key; KeyList.SelectedItem = null; RefreshKeyList(); var matches = string.IsNullOrWhiteSpace(selectedPhysicalKey) ? [] : allKeys.Where(k => GetPhysicalKey(k.Value).Equals(selectedPhysicalKey, StringComparison.OrdinalIgnoreCase)).ToList(); SelectedKeyName.Text = selectedPhysicalKey == null ? "未选择键帽：左侧显示全部键位功能" : $"{GetPhysicalKeyLabel(selectedPhysicalKey)}：左侧显示 {matches.Count} 个占用功能"; SelectedKeyMod.Text = selectedPhysicalKey == null ? "" : "请在左侧选择具体功能进行编辑；再次点击该键帽可取消筛选。"; BuildKeyboard(); }
+    private void KeyboardKey_Click(object sender, RoutedEventArgs e) => SelectPhysicalKey((string)((Button)sender).Tag);
+    private void SelectPhysicalKey(string key) { selectedPhysicalKey = selectedPhysicalKey?.Equals(key, StringComparison.OrdinalIgnoreCase) == true ? null : key; KeyList.SelectedItem = null; RefreshKeyList(); var matches = string.IsNullOrWhiteSpace(selectedPhysicalKey) ? [] : allKeys.Where(k => GetPhysicalKey(k.Value).Equals(selectedPhysicalKey, StringComparison.OrdinalIgnoreCase)).ToList(); SelectedKeyName.Text = selectedPhysicalKey == null ? "未选择键帽：左侧显示全部键位功能" : $"{GetPhysicalKeyLabel(selectedPhysicalKey)}：左侧显示 {matches.Count} 个占用功能"; SelectedKeyMod.Text = selectedPhysicalKey == null ? "" : "请在左侧选择具体功能进行编辑；再次点击该键帽可取消筛选。"; BuildKeyboard(); }
     private void LayoutCombo_SelectionChanged(object sender, SelectionChangedEventArgs e) { if (!IsLoaded || LayoutCombo.SelectedItem is not string layout) return; settings.KeyboardLayout = layout; SettingsStore.Save(settings); BuildKeyboard(); }
     private KeyBindingItem? SelectedKey => KeyList.SelectedItem as KeyBindingItem;
     private void KeyList_SelectionChanged(object sender, SelectionChangedEventArgs e) { if (SelectedKey is not { } k) return; SelectedKeyName.Text = k.FunctionDisplay; SelectedKeyMod.Text = k.ModDisplayName + (k.IsLibrary ? "  ·  前置/依赖库" : ""); RememberKey.IsChecked = k.Remember; syncingConflictCheck = true; if (countConflictCheck != null) countConflictCheck.IsChecked = k.CountsAsConflict; syncingConflictCheck = false; CaptureButton.Content = $"当前：{k.KeyLabel}（点击重新绑定）"; }
