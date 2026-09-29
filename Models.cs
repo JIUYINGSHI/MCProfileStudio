@@ -68,6 +68,11 @@ public class AppSettings
     public string LastModSearchQuery { get; set; } = "";
     public string ActiveFavoriteModProfile { get; set; } = "默认收藏";
     public Dictionary<string, FavoriteModProfile> FavoriteModProfiles { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+    public string WebDavUrl { get; set; } = "";
+    public string WebDavUsername { get; set; } = "";
+    public string WebDavPasswordProtected { get; set; } = "";
+    public string WebDavRemotePath { get; set; } = "MCProfileStudio";
+    public DateTimeOffset? LastWebDavBackup { get; set; }
 }
 
 public class FavoriteModProfile

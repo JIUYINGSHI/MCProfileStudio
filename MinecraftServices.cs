@@ -10,7 +10,13 @@ public static class SettingsStore
     public static readonly string Root = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "McProfileStudio");
     private static readonly string FilePath = Path.Combine(Root, "settings.json");
     public static AppSettings Load() { try { return JsonSerializer.Deserialize<AppSettings>(File.ReadAllText(FilePath)) ?? new(); } catch { return new(); } }
-    public static void Save(AppSettings value) { Directory.CreateDirectory(Root); File.WriteAllText(FilePath, JsonSerializer.Serialize(value, new JsonSerializerOptions { WriteIndented = true })); }
+    public static void Save(AppSettings value)
+    {
+        Directory.CreateDirectory(Root);
+        var temp = FilePath + ".tmp";
+        File.WriteAllText(temp, JsonSerializer.Serialize(value, new JsonSerializerOptions { WriteIndented = true }));
+        File.Move(temp, FilePath, true);
+    }
 }
 
 public static class MinecraftConfig
