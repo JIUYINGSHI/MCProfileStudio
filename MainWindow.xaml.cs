@@ -388,9 +388,46 @@ public partial class MainWindow : Window
     {
         KeyboardPanel.Children.Clear(); var active = allKeys.Where(k => !k.Value.Contains("unknown", StringComparison.OrdinalIgnoreCase)).ToList(); var counts = active.GroupBy(k => NormalizeKeyLabel(k.KeyLabel.Split(':')[0])).ToDictionary(g => g.Key, g => g.Count(), StringComparer.OrdinalIgnoreCase); var conflictKeys = active.Where(k => k.CountsAsConflict).GroupBy(k => k.Value, StringComparer.OrdinalIgnoreCase).Where(g => g.Count() > 1).Select(g => NormalizeKeyLabel(g.First().KeyLabel.Split(':')[0])).ToHashSet(StringComparer.OrdinalIgnoreCase);
         var selectedLayout = LayoutCombo.SelectedItem as string ?? "108 键全尺寸"; if (!KeyboardLayouts.TryGetValue(selectedLayout, out var rows)) rows = KeyboardLayouts["108 键全尺寸"];
-        foreach (var row in rows) { var panel = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Center }; foreach (var key in row) { counts.TryGetValue(key, out var used); var width = key switch { "SPACE" => 245, "BACKSPACE" or "RSHIFT" or "LSHIFT" or "ENTER" => 92, "CAPS" or "TAB" => 72, _ => 48 }; var selected = selectedPhysicalKey?.Equals(key, StringComparison.OrdinalIgnoreCase) == true; var b = new Button { Content = used == 0 ? key : $"{key}\n{used}", ToolTip = key, Margin = new(3), Width = width, Height = 42, FontSize = key.Length > 3 ? 8.5 : 12, Background = new SolidColorBrush(conflictKeys.Contains(key) ? Color.FromRgb(190, 64, 74) : used > 0 ? Color.FromRgb(0, 120, 212) : Color.FromRgb(48, 61, 75)), BorderBrush = new SolidColorBrush(selected ? Color.FromRgb(91, 205, 255) : Colors.Transparent), BorderThickness = selected ? new Thickness(3) : new Thickness(0), Tag = key }; b.Click += KeyboardKey_Click; panel.Children.Add(b); } KeyboardPanel.Children.Add(panel); } Dispatcher.BeginInvoke(FitKeyboard, System.Windows.Threading.DispatcherPriority.Loaded);
+        foreach (var row in rows)
+        {
+            var panel = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Center };
+            foreach (var key in row)
+            {
+                counts.TryGetValue(key, out var used); var width = key switch { "SPACE" => 245, "BACKSPACE" or "RSHIFT" or "LSHIFT" or "ENTER" => 92, "CAPS" or "TAB" => 72, _ => 48 };
+                panel.Children.Add(CreateInputKeyButton(key, key, used, conflictKeys.Contains(key), width, 46));
+            }
+            KeyboardPanel.Children.Add(panel);
+        }
+        BuildMouse(counts, conflictKeys);
     }
-    private void FitKeyboard() { if (!IsLoaded || KeyboardPanel.Children.Count == 0) return; KeyboardPanel.LayoutTransform = Transform.Identity; KeyboardPanel.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity)); var available = Math.Max(100, ActualWidth - 330); var scale = Math.Min(1, available / Math.Max(1, KeyboardPanel.DesiredSize.Width)); KeyboardPanel.LayoutTransform = new ScaleTransform(scale, scale); }
+
+    private Button CreateInputKeyButton(string physicalKey, string label, int used, bool conflict, double width, double height)
+    {
+        var content = new StackPanel { VerticalAlignment = VerticalAlignment.Center, HorizontalAlignment = HorizontalAlignment.Center };
+        content.Children.Add(new TextBlock { Text = label, FontSize = label.Length > 5 ? 8 : 10.5, FontWeight = FontWeights.SemiBold, HorizontalAlignment = HorizontalAlignment.Center, TextAlignment = TextAlignment.Center, LineHeight = 11 });
+        if (used > 0) content.Children.Add(new TextBlock { Text = used.ToString(), FontSize = 10.5, FontWeight = FontWeights.Bold, HorizontalAlignment = HorizontalAlignment.Center, TextAlignment = TextAlignment.Center, LineHeight = 12, Margin = new Thickness(0, 1, 0, 0) });
+        var selected = selectedPhysicalKey?.Equals(physicalKey, StringComparison.OrdinalIgnoreCase) == true;
+        var button = new Button { Content = content, ToolTip = label, Margin = new Thickness(3), Padding = new Thickness(3, 2, 3, 2), Width = width, Height = height, Background = new SolidColorBrush(conflict ? Color.FromRgb(190, 64, 74) : used > 0 ? Color.FromRgb(0, 120, 212) : Color.FromRgb(48, 61, 75)), BorderBrush = new SolidColorBrush(selected ? Color.FromRgb(91, 205, 255) : Colors.Transparent), BorderThickness = selected ? new Thickness(3) : new Thickness(0), Tag = physicalKey };
+        button.Click += KeyboardKey_Click; return button;
+    }
+
+    private void BuildMouse(IReadOnlyDictionary<string, int> counts, IReadOnlySet<string> conflictKeys)
+    {
+        MousePanel.Children.Clear();
+        var body = new Border { Width = 124, Height = 202, CornerRadius = new CornerRadius(54), Background = new SolidColorBrush(Color.FromArgb(120, 22, 34, 45)), BorderBrush = new SolidColorBrush(Color.FromRgb(76, 101, 124)), BorderThickness = new Thickness(2) }; MousePanel.Children.Add(body); Canvas.SetLeft(body, 16); Canvas.SetTop(body, 7);
+        var mouseKeys = new[]
+        {
+            ("鼠标 LEFT", "左键", 54d, 64d, 20d, 12d), ("鼠标 RIGHT", "右键", 54d, 64d, 82d, 12d),
+            ("鼠标 MIDDLE", "中", 20d, 48d, 66d, 15d), ("鼠标 4", "侧键 1", 34d, 48d, 3d, 82d), ("鼠标 5", "侧键 2", 34d, 48d, 3d, 136d)
+        };
+        foreach (var item in mouseKeys)
+        {
+            counts.TryGetValue(item.Item1, out var used); var button = CreateInputKeyButton(item.Item1, item.Item2, used, conflictKeys.Contains(item.Item1), item.Item3, item.Item4); button.Margin = new Thickness(0); MousePanel.Children.Add(button); Canvas.SetLeft(button, item.Item5); Canvas.SetTop(button, item.Item6);
+        }
+        var caption = new TextBlock { Text = "鼠标", Foreground = new SolidColorBrush(Color.FromRgb(166, 185, 203)), FontSize = 11, HorizontalAlignment = HorizontalAlignment.Center }; MousePanel.Children.Add(caption); Canvas.SetLeft(caption, 68); Canvas.SetTop(caption, 178);
+    }
+
+    private void FitKeyboard() { if (KeyboardPanel != null) KeyboardPanel.LayoutTransform = Transform.Identity; }
     private static string NormalizeKeyLabel(string key) => key.Replace("LEFT ", "L").Replace("RIGHT ", "R").Replace("LEFT", "L").Replace("RIGHT", "R").Replace("RETURN", "ENTER").Replace("OEM", "").Trim();
     private void KeyboardKey_Click(object sender, RoutedEventArgs e) { var key = (string)((Button)sender).Tag; selectedPhysicalKey = selectedPhysicalKey?.Equals(key, StringComparison.OrdinalIgnoreCase) == true ? null : key; KeyList.SelectedItem = null; RefreshKeyList(); var matches = string.IsNullOrWhiteSpace(selectedPhysicalKey) ? [] : allKeys.Where(k => NormalizeKeyLabel(k.KeyLabel.Split(':')[0]).Equals(selectedPhysicalKey, StringComparison.OrdinalIgnoreCase)).ToList(); SelectedKeyName.Text = selectedPhysicalKey == null ? "未选择键帽：左侧显示全部键位功能" : $"{selectedPhysicalKey}：左侧显示 {matches.Count} 个占用功能"; SelectedKeyMod.Text = selectedPhysicalKey == null ? "" : "请在左侧选择具体功能进行编辑；再次点击该键帽可取消筛选。"; BuildKeyboard(); }
     private void LayoutCombo_SelectionChanged(object sender, SelectionChangedEventArgs e) { if (!IsLoaded || LayoutCombo.SelectedItem is not string layout) return; settings.KeyboardLayout = layout; SettingsStore.Save(settings); BuildKeyboard(); }
