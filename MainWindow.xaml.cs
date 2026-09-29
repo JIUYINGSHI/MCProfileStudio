@@ -128,17 +128,38 @@ public partial class MainWindow : Window
     {
         var picker = new OpenFileDialog { Title = "选择要导入的 options.txt", Filter = "Minecraft options.txt|options.txt|文本文件|*.txt|所有文件|*.*", Multiselect = false }; if (picker.ShowDialog(this) != true) return;
         var choice = ShowImportChoice(); if (choice == null) return; var options = MinecraftConfig.ReadOptionsFile(picker.FileName); var directory = Path.GetDirectoryName(picker.FileName) ?? "";
+        if (options.Count == 0) { AppDialog.Show(this, "没有从该文件读取到有效的 Minecraft 设置。", "导入失败", MessageBoxButton.OK, MessageBoxImage.Warning); return; }
+        var importedPackCount = 0; var changedKeyCount = 0;
         if (choice.Value.Packs && options.TryGetValue("resourcePacks", out var rawPacks))
         {
-            var imported = MinecraftConfig.ParseResourcePacks(rawPacks); var rank = imported.AsEnumerable().Reverse().Select((name, index) => (name, index)).ToDictionary(x => x.name, x => x.index, StringComparer.OrdinalIgnoreCase);
-            foreach (var pack in packs) pack.Enabled = rank.ContainsKey(pack.Name); var sorted = packs.OrderBy(p => rank.TryGetValue(p.Name, out var index) ? index : int.MaxValue).ToList(); packs.Clear(); foreach (var pack in sorted) packs.Add(pack); RefreshPackColumns();
+            var imported = MinecraftConfig.ParseResourcePacks(rawPacks); importedPackCount = imported.Count; ApplyImportedPackDraft(imported, directory);
         }
         if (choice.Value.Shader)
         {
             var shader = MinecraftConfig.ReadShaderSelection(directory); if (!string.IsNullOrWhiteSpace(shader)) { draftSelectedShader = shader; ShaderList.SelectedItem = shaders.FirstOrDefault(x => x.Name.Equals(shader, StringComparison.OrdinalIgnoreCase)); SelectedShaderName.Text = shader; }
         }
-        if (choice.Value.Keys) { instance = directory; InstanceLabel.Text = directory; LoadKeysFromOptions(options, directory, true); }
-        StatusText.Text = $"已导入 {Path.GetFileName(picker.FileName)}（尚未保存配置）";
+        if (choice.Value.Keys)
+        {
+            var before = allKeys.ToDictionary(item => item.OptionKey, item => item.Value, StringComparer.Ordinal);
+            instance = directory; InstanceLabel.Text = directory; LoadKeysFromOptions(options, directory, true);
+            changedKeyCount = allKeys.Count(item => !before.TryGetValue(item.OptionKey, out var oldValue) || !oldValue.Equals(item.Value, StringComparison.Ordinal));
+            KeySearch.Clear(); ConflictOnly.IsChecked = false; selectedPhysicalKey = null; if (ModFilter.Items.Count > 0) ModFilter.SelectedIndex = 0; RefreshKeyList();
+        }
+        if (packProfileCombo != null) packProfileCombo.ToolTip = "当前页面正在显示从 options.txt 导入的未保存草稿";
+        if (keyProfileCombo != null) keyProfileCombo.ToolTip = "当前页面正在显示从 options.txt 导入的未保存草稿";
+        StatusText.Text = $"已导入 {Path.GetFileName(picker.FileName)}：{importedPackCount} 个启用资源包，{changedKeyCount} 个键位与导入前不同（尚未保存）";
+    }
+
+    private void ApplyImportedPackDraft(IReadOnlyList<string> imported, string sourceDirectory)
+    {
+        var available = packs.ToDictionary(item => item.Name, StringComparer.OrdinalIgnoreCase);
+        var instancePacks = new ObservableCollection<PackItem>(); LoadPacks(Path.Combine(sourceDirectory, "resourcepacks"), instancePacks, false);
+        foreach (var item in instancePacks) available.TryAdd(item.Name, item);
+        foreach (var name in imported) available.TryAdd(name, new PackItem { Name = name, Description = "options.txt 引用了该资源包，但固定库与实例目录中均未找到文件。" });
+        var rank = imported.AsEnumerable().Reverse().Select((name, index) => (name, index)).ToDictionary(item => item.name, item => item.index, StringComparer.OrdinalIgnoreCase);
+        var sorted = available.Values.OrderBy(item => rank.TryGetValue(item.Name, out var index) ? index : int.MaxValue).ThenBy(item => item.Name, StringComparer.OrdinalIgnoreCase).ToList();
+        packs.Clear(); foreach (var item in sorted) { item.Enabled = rank.ContainsKey(item.Name); packs.Add(item); }
+        RefreshPackColumns(); RefreshSummary();
     }
     private (bool Packs, bool Shader, bool Keys)? ShowImportChoice()
     {
@@ -254,7 +275,7 @@ public partial class MainWindow : Window
     {
         if (e.Data.GetData(typeof(PackItem)) is not PackItem source || sender is not ListBox destination) return; source.Enabled = destination == enabledPackList; var element = destination.InputHitTest(e.GetPosition(destination)) as DependencyObject; while (element != null && element is not ListBoxItem) element = VisualTreeHelper.GetParent(element); var target = (element as ListBoxItem)?.DataContext as PackItem; if (target != null && source != target) { var index = packs.IndexOf(target); packs.Remove(source); packs.Insert(Math.Max(0, index), source); } RefreshPackColumns(); StatusText.Text = "资源包配置已修改（尚未保存）";
     }
-    private void SavePackProfile() { var profile = settings.PackProfiles[settings.ActivePackProfile]; profile.PackOrder = packs.Select(p => p.Name).ToList(); profile.EnabledPacks = packs.Where(p => p.Enabled).Select(p => p.Name).ToList(); settings.PackOrder = profile.PackOrder.ToList(); settings.EnabledPacks = profile.EnabledPacks.ToList(); settings.SelectedShader = draftSelectedShader; SettingsStore.Save(settings); StatusText.Text = $"已保存资源包配置：{settings.ActivePackProfile}"; }
+    private void SavePackProfile() { var profile = settings.PackProfiles[settings.ActivePackProfile]; profile.PackOrder = packs.Select(p => p.Name).ToList(); profile.EnabledPacks = packs.Where(p => p.Enabled).Select(p => p.Name).ToList(); settings.PackOrder = profile.PackOrder.ToList(); settings.EnabledPacks = profile.EnabledPacks.ToList(); settings.SelectedShader = draftSelectedShader; SettingsStore.Save(settings); if (packProfileCombo != null) packProfileCombo.ToolTip = null; StatusText.Text = $"已保存资源包配置：{settings.ActivePackProfile}"; }
 
     private void BuildPackManager()
     {
@@ -327,7 +348,7 @@ public partial class MainWindow : Window
     }
     private void SaveKeyProfile_Click(object? sender, RoutedEventArgs e)
     {
-        var profile = new KeyProfile { ConflictExcluded = allKeys.Where(k => !k.CountsAsConflict).Select(k => k.OptionKey).ToHashSet(StringComparer.Ordinal) }; foreach (var group in allKeys.Where(k => k.Remember).GroupBy(k => k.ModId)) profile.ModBindings[group.Key] = group.ToDictionary(k => k.OptionKey, k => k.Value, StringComparer.Ordinal); settings.KeyProfiles[settings.ActiveKeyProfile] = profile; settings.ModKeyProfiles = profile.ModBindings.ToDictionary(x => x.Key, x => new Dictionary<string, string>(x.Value, StringComparer.Ordinal), StringComparer.OrdinalIgnoreCase); SettingsStore.Save(settings); StatusText.Text = $"已保存键位配置：{settings.ActiveKeyProfile}";
+        var profile = new KeyProfile { ConflictExcluded = allKeys.Where(k => !k.CountsAsConflict).Select(k => k.OptionKey).ToHashSet(StringComparer.Ordinal) }; foreach (var group in allKeys.Where(k => k.Remember).GroupBy(k => k.ModId)) profile.ModBindings[group.Key] = group.ToDictionary(k => k.OptionKey, k => k.Value, StringComparer.Ordinal); settings.KeyProfiles[settings.ActiveKeyProfile] = profile; settings.ModKeyProfiles = profile.ModBindings.ToDictionary(x => x.Key, x => new Dictionary<string, string>(x.Value, StringComparer.Ordinal), StringComparer.OrdinalIgnoreCase); SettingsStore.Save(settings); if (keyProfileCombo != null) keyProfileCombo.ToolTip = null; StatusText.Text = $"已保存键位配置：{settings.ActiveKeyProfile}";
     }
     private void PackProfile_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
