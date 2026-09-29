@@ -140,14 +140,23 @@ public partial class MainWindow : Window
         }
         if (choice.Value.Keys)
         {
-            var before = allKeys.ToDictionary(item => item.OptionKey, item => item.Value, StringComparer.Ordinal);
+            changedKeyCount = CountImportedKeyDifferences(options);
             instance = directory; InstanceLabel.Text = directory; LoadKeysFromOptions(options, directory, true);
-            changedKeyCount = allKeys.Count(item => !before.TryGetValue(item.OptionKey, out var oldValue) || !oldValue.Equals(item.Value, StringComparison.Ordinal));
             KeySearch.Clear(); ConflictOnly.IsChecked = false; selectedPhysicalKey = null; if (ModFilter.Items.Count > 0) ModFilter.SelectedIndex = 0; RefreshKeyList();
         }
         if (packProfileCombo != null) packProfileCombo.ToolTip = "当前页面正在显示从 options.txt 导入的未保存草稿";
         if (keyProfileCombo != null) keyProfileCombo.ToolTip = "当前页面正在显示从 options.txt 导入的未保存草稿";
-        StatusText.Text = $"已导入 {Path.GetFileName(picker.FileName)}：{importedPackCount} 个启用资源包，{changedKeyCount} 个键位与导入前不同（尚未保存）";
+        var packResult = choice.Value.Packs ? $"{importedPackCount} 个启用资源包" : "未导入资源包";
+        var keyResult = choice.Value.Keys ? $"{changedKeyCount} 个键位与已保存方案不同" : "未导入键位";
+        StatusText.Text = $"已导入 {Path.GetFileName(picker.FileName)}：{packResult}，{keyResult}（尚未保存）";
+    }
+
+    private int CountImportedKeyDifferences(IReadOnlyDictionary<string, string> importedOptions)
+    {
+        if (!settings.KeyProfiles.TryGetValue(settings.ActiveKeyProfile, out var profile)) return importedOptions.Keys.Count(key => key.StartsWith("key_", StringComparison.Ordinal));
+        var saved = profile.ModBindings.SelectMany(group => group.Value).GroupBy(item => item.Key, StringComparer.Ordinal).ToDictionary(group => group.Key, group => group.Last().Value, StringComparer.Ordinal);
+        var imported = importedOptions.Where(item => item.Key.StartsWith("key_", StringComparison.Ordinal)).ToDictionary(item => item.Key, item => item.Value, StringComparer.Ordinal);
+        return saved.Keys.Concat(imported.Keys).Distinct(StringComparer.Ordinal).Count(key => !saved.TryGetValue(key, out var savedValue) || !imported.TryGetValue(key, out var importedValue) || !savedValue.Equals(importedValue, StringComparison.Ordinal));
     }
 
     private void ApplyImportedPackDraft(IReadOnlyList<string> imported, string sourceDirectory)
