@@ -3,6 +3,7 @@ using System.Collections.ObjectModel;
 using System.IO;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
@@ -30,6 +31,14 @@ public partial class MainWindow : Window
     private bool packDragInProgress;
     private IntPtr packMouseHook;
     private readonly LowLevelMouseProc packMouseHookProc;
+    private Popup? packDragPreview;
+    private PackItem? draggedPack;
+    private int draggedPackOriginalIndex;
+    private bool draggedPackOriginalEnabled;
+    private ListBox? lastPreviewList;
+    private PackItem? lastPreviewTarget;
+    private bool lastPreviewAfter;
+    private Point packDragPosition;
     private ComboBox? packProfileCombo;
     private bool switchingProfile;
     private ComboBox? keyProfileCombo;
@@ -385,10 +394,31 @@ public partial class MainWindow : Window
     }
 
     private void PackList_MouseDown(object sender, MouseButtonEventArgs e) => dragStart = e.GetPosition(null);
-    protected override void OnMouseMove(MouseEventArgs e) { base.OnMouseMove(e); var list = e.OriginalSource is DependencyObject d ? FindParent<ListBox>(d) : null; if (e.LeftButton != MouseButtonState.Pressed || list?.SelectedItem is not PackItem item) return; var p = e.GetPosition(null); if (Math.Abs(p.X - dragStart.X) + Math.Abs(p.Y - dragStart.Y) > 8) { try { packDragInProgress = true; InstallPackMouseHook(); DragDrop.DoDragDrop(list, item, DragDropEffects.Move); } finally { RemovePackMouseHook(); packDragInProgress = false; StopPackDragAutoScroll(); } } }
+    protected override void OnMouseMove(MouseEventArgs e)
+    {
+        base.OnMouseMove(e); var list = e.OriginalSource is DependencyObject d ? FindParent<ListBox>(d) : null;
+        if (e.LeftButton != MouseButtonState.Pressed || list?.SelectedItem is not PackItem item) return;
+        var p = e.GetPosition(null); if (Math.Abs(p.X - dragStart.X) + Math.Abs(p.Y - dragStart.Y) <= 8) return;
+        var result = DragDropEffects.None;
+        try
+        {
+            packDragInProgress = true; draggedPack = item; draggedPackOriginalIndex = packs.IndexOf(item); draggedPackOriginalEnabled = item.Enabled;
+            lastPreviewList = null; lastPreviewTarget = null; BeginPackDragPreview(list, item); InstallPackMouseHook();
+            result = DragDrop.DoDragDrop(list, item, DragDropEffects.Move);
+        }
+        finally
+        {
+            if (result == DragDropEffects.None && draggedPack != null)
+            {
+                packs.Remove(draggedPack); draggedPack.Enabled = draggedPackOriginalEnabled; packs.Insert(Math.Clamp(draggedPackOriginalIndex, 0, packs.Count), draggedPack); RefreshPackColumns();
+            }
+            EndPackDragPreview(); draggedPack = null; RemovePackMouseHook(); packDragInProgress = false; StopPackDragAutoScroll();
+        }
+    }
     private void PackList_Drop(object sender, DragEventArgs e)
     {
-        StopPackDragAutoScroll(); if (e.Data.GetData(typeof(PackItem)) is not PackItem source || sender is not ListBox destination) return; source.Enabled = destination == enabledPackList; var element = destination.InputHitTest(e.GetPosition(destination)) as DependencyObject; while (element != null && element is not ListBoxItem) element = VisualTreeHelper.GetParent(element); var target = (element as ListBoxItem)?.DataContext as PackItem; if (target != null && source != target) { var index = packs.IndexOf(target); packs.Remove(source); packs.Insert(Math.Max(0, index), source); } RefreshPackColumns(); StatusText.Text = "资源包配置已修改（尚未保存）";
+        StopPackDragAutoScroll(); if (e.Data.GetData(typeof(PackItem)) is not PackItem || sender is not ListBox) return;
+        e.Effects = DragDropEffects.Move; e.Handled = true; StatusText.Text = "资源包配置已修改（尚未保存）";
     }
     private void SavePackProfile() { var profile = settings.PackProfiles[settings.ActivePackProfile]; profile.PackOrder = packs.Select(p => p.Name).ToList(); profile.EnabledPacks = packs.Where(p => p.Enabled).Select(p => p.Name).ToList(); settings.PackOrder = profile.PackOrder.ToList(); settings.EnabledPacks = profile.EnabledPacks.ToList(); settings.SelectedShader = draftSelectedShader; SettingsStore.Save(settings); if (packProfileCombo != null) packProfileCombo.ToolTip = null; StatusText.Text = $"已保存资源包配置：{settings.ActivePackProfile}"; }
 
@@ -409,6 +439,70 @@ public partial class MainWindow : Window
         var border = new Border { Background = new SolidColorBrush(Color.FromArgb(190, 27, 27, 27)), BorderBrush = new SolidColorBrush(Color.FromArgb(55, 255, 255, 255)), BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(18), Padding = new Thickness(14), Margin = column == 0 ? new Thickness(0, 0, 7, 14) : new Thickness(7, 0, 0, 14), Child = panel }; Grid.SetColumn(border, column); Grid.SetRow(border, 1); PacksPage.Children.Add(border); return list;
     }
     private void RefreshPackColumns() { if (disabledPackList == null || enabledPackList == null) return; disabledPackList.ItemsSource = packs.Where(p => !p.Enabled).ToList(); enabledPackList.ItemsSource = packs.Where(p => p.Enabled).ToList(); }
+
+    private void BeginPackDragPreview(ListBox source, PackItem item)
+    {
+        var card = new ContentPresenter { Content = item, ContentTemplate = source.ItemTemplate, Width = Math.Max(220, source.ActualWidth - 54), Opacity = 0.88, IsHitTestVisible = false, RenderTransformOrigin = new Point(0.5, 0.5), RenderTransform = new ScaleTransform(0.90, 0.90) };
+        card.Effect = new System.Windows.Media.Effects.DropShadowEffect { BlurRadius = 18, ShadowDepth = 7, Opacity = 0.55, Color = Colors.Black };
+        packDragPreview = new Popup { AllowsTransparency = true, IsHitTestVisible = false, Placement = PlacementMode.AbsolutePoint, Child = card, IsOpen = true };
+    }
+
+    private void EndPackDragPreview()
+    {
+        if (packDragPreview != null) packDragPreview.IsOpen = false;
+        packDragPreview = null; lastPreviewList = null; lastPreviewTarget = null;
+    }
+
+    private void UpdatePackDragPreview(ListBox list, Point position)
+    {
+        if (packDragPreview == null) return;
+        var screen = list.PointToScreen(position); packDragPreview.HorizontalOffset = screen.X + 14; packDragPreview.VerticalOffset = screen.Y + 14;
+    }
+
+    private Dictionary<PackItem, double> CapturePackPositions()
+    {
+        var result = new Dictionary<PackItem, double>();
+        foreach (var list in new[] { disabledPackList, enabledPackList })
+        {
+            if (list == null) continue;
+            foreach (var item in list.Items.OfType<PackItem>()) if (list.ItemContainerGenerator.ContainerFromItem(item) is ListBoxItem container) result[item] = container.PointToScreen(new Point()).Y;
+        }
+        return result;
+    }
+
+    private void AnimatePackPositions(IReadOnlyDictionary<PackItem, double> previous)
+    {
+        foreach (var list in new[] { disabledPackList, enabledPackList })
+        {
+            if (list == null) continue;
+            list.UpdateLayout();
+            foreach (var item in list.Items.OfType<PackItem>())
+            {
+                if (!previous.TryGetValue(item, out var oldY) || list.ItemContainerGenerator.ContainerFromItem(item) is not ListBoxItem container) continue;
+                var offset = oldY - container.PointToScreen(new Point()).Y; if (Math.Abs(offset) < 1) continue;
+                var transform = new TranslateTransform(0, offset); container.RenderTransform = transform;
+                transform.BeginAnimation(TranslateTransform.YProperty, new DoubleAnimation(0, TimeSpan.FromMilliseconds(170)) { EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut } });
+            }
+        }
+    }
+
+    private void PreviewPackPosition(ListBox destination, Point position)
+    {
+        if (draggedPack == null) return;
+        var hit = destination.InputHitTest(position) as DependencyObject;
+        var container = FindParent<ListBoxItem>(hit); var target = container?.DataContext as PackItem;
+        var after = container != null && position.Y > container.TranslatePoint(new Point(0, container.ActualHeight / 2), destination).Y;
+        if (lastPreviewList == destination && lastPreviewTarget == target && lastPreviewAfter == after) return;
+        lastPreviewList = destination; lastPreviewTarget = target; lastPreviewAfter = after;
+        var previous = CapturePackPositions(); draggedPack.Enabled = destination == enabledPackList; packs.Remove(draggedPack);
+        int index;
+        if (target != null && packs.Contains(target)) index = packs.IndexOf(target) + (after ? 1 : 0);
+        else
+        {
+            var sameColumn = packs.Where(p => p.Enabled == draggedPack.Enabled).ToList(); index = sameColumn.Count == 0 ? packs.Count : packs.IndexOf(sameColumn[^1]) + 1;
+        }
+        packs.Insert(Math.Clamp(index, 0, packs.Count), draggedPack); RefreshPackColumns(); AnimatePackPositions(previous);
+    }
 
     private void PackList_MouseWheel(object sender, MouseWheelEventArgs e)
     {
@@ -443,7 +537,8 @@ public partial class MainWindow : Window
     {
         var list = IsScreenPointInside(disabledPackList, screenPoint) ? disabledPackList : IsScreenPointInside(enabledPackList, screenPoint) ? enabledPackList : null;
         if (list == null || FindVisualChild<ScrollViewer>(list) is not { } scroll) return false;
-        scroll.ScrollToVerticalOffset(scroll.VerticalOffset - delta / 3.0);
+        scroll.ScrollToVerticalOffset(scroll.VerticalOffset - delta / 3.0); list.UpdateLayout();
+        packDragPosition = list.PointFromScreen(screenPoint); PreviewPackPosition(list, packDragPosition);
         return true;
     }
 
@@ -457,19 +552,20 @@ public partial class MainWindow : Window
     private void PackList_DragOver(object sender, DragEventArgs e)
     {
         if (sender is not ListBox list || !e.Data.GetDataPresent(typeof(PackItem))) { StopPackDragAutoScroll(); return; }
-        var y = e.GetPosition(list).Y;
+        var position = e.GetPosition(list); packDragPosition = position; UpdatePackDragPreview(list, position); PreviewPackPosition(list, position);
+        e.Effects = DragDropEffects.Move; e.Handled = true;
+        var y = position.Y;
         const double edge = 58;
         var direction = list.ActualHeight > edge * 2 ? y < edge ? -1 : y > list.ActualHeight - edge ? 1 : 0 : 0;
         if (direction == 0) { StopPackDragAutoScroll(); return; }
         packDragScrollList = list; packDragScrollDirection = direction;
         if (!packDragScrollTimer.IsEnabled) packDragScrollTimer.Start();
-        e.Effects = DragDropEffects.Move; e.Handled = true;
     }
 
     private void PackDragScrollTimer_Tick(object? sender, EventArgs e)
     {
         if (packDragScrollList == null || packDragScrollDirection == 0 || FindVisualChild<ScrollViewer>(packDragScrollList) is not { } scroll) { StopPackDragAutoScroll(); return; }
-        scroll.ScrollToVerticalOffset(scroll.VerticalOffset + packDragScrollDirection * 18);
+        scroll.ScrollToVerticalOffset(scroll.VerticalOffset + packDragScrollDirection * 18); packDragScrollList.UpdateLayout(); PreviewPackPosition(packDragScrollList, packDragPosition);
     }
 
     private void StopPackDragAutoScroll() { packDragScrollTimer.Stop(); packDragScrollList = null; packDragScrollDirection = 0; }
