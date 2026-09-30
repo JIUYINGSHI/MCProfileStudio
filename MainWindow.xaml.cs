@@ -7,6 +7,7 @@ using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using System.Windows.Media.Media3D;
+using System.Windows.Media.Animation;
 using System.Runtime.InteropServices;
 using System.Windows.Interop;
 
@@ -33,12 +34,17 @@ public partial class MainWindow : Window
     private string? selectedPhysicalKey;
     private string draftSelectedShader = "";
     private CancellationTokenSource? shaderPreviewRefresh;
+    private CancellationTokenSource? toastCancellation;
+    private Border? toastHost;
+    private TextBlock? toastIcon;
+    private TextBlock? toastTitle;
+    private TextBlock? toastMessage;
 
     private static readonly Dictionary<string, string[][]> KeyboardLayouts = CreateKeyboardLayouts();
 
     public MainWindow()
     {
-        EnsurePackProfiles(); EnsureKeyProfiles(); EnsureFavoriteModProfiles(); draftSelectedShader = settings.SelectedShader; InitializeComponent(); ApplyMinecraftNavIcons(); PackList.ItemsSource = packs; ShaderList.ItemsSource = shaders; BuildPackManager(); BuildDraftControls(); BuildModConfigPage(); BuildFavoriteModsPage(); BuildDataToolsCard(); EnableHomeScrolling();
+        EnsurePackProfiles(); EnsureKeyProfiles(); EnsureFavoriteModProfiles(); draftSelectedShader = settings.SelectedShader; InitializeComponent(); InitializeToastLayer(); ApplyMinecraftNavIcons(); PackList.ItemsSource = packs; ShaderList.ItemsSource = shaders; BuildPackManager(); BuildDraftControls(); BuildModConfigPage(); BuildFavoriteModsPage(); BuildDataToolsCard(); EnableHomeScrolling();
         LayoutCombo.ItemsSource = KeyboardLayouts.Keys; LayoutCombo.SelectedItem = KeyboardLayouts.ContainsKey(settings.KeyboardLayout) ? settings.KeyboardLayout : "108 键全尺寸";
         SourceInitialized += (_, _) => EnableMica(); Loaded += (_, _) => { ReloadLibraries(); RefreshSummary(); FitKeyboard(); }; SizeChanged += (_, _) => FitKeyboard();
     }
@@ -103,10 +109,61 @@ public partial class MainWindow : Window
         keyProfileCombo = new ComboBox(); keyProfileCombo.SelectionChanged += KeyProfile_SelectionChanged; content.Children.Add(keyProfileCombo);
         var buttons = new WrapPanel { Margin = new Thickness(0, 8, 0, 0) }; var importKeys = new Button { Content = "导入 options.txt", Padding = new Thickness(12, 6, 12, 6), Background = new SolidColorBrush(Color.FromRgb(56, 71, 86)) }; importKeys.Click += ImportKeyOptions_Click; var add = new Button { Content = "新建", Padding = new Thickness(12, 6, 12, 6), Margin = new Thickness(6, 0, 0, 0) }; add.Click += AddKeyProfile_Click; var rename = new Button { Content = "重命名", Padding = new Thickness(12, 6, 12, 6), Margin = new Thickness(6, 0, 0, 0), Background = new SolidColorBrush(Color.FromRgb(56, 71, 86)) }; rename.Click += RenameKeyProfile_Click; var delete = new Button { Content = "删除", Padding = new Thickness(12, 6, 12, 6), Margin = new Thickness(6, 0, 0, 0), Background = new SolidColorBrush(Color.FromRgb(112, 48, 56)) }; delete.Click += DeleteKeyProfile_Click; var save = new Button { Content = "保存配置", Padding = new Thickness(12, 6, 12, 6), Margin = new Thickness(6, 0, 0, 0) }; save.Click += SaveKeyProfile_Click; buttons.Children.Add(importKeys); buttons.Children.Add(add); buttons.Children.Add(rename); buttons.Children.Add(delete); buttons.Children.Add(save); content.Children.Add(buttons); box.Child = content; keyProfileManagerPanel = box;
         keyProfileManagerButton = new Button { HorizontalAlignment = HorizontalAlignment.Stretch, Background = new SolidColorBrush(Color.FromRgb(39, 54, 68)), Margin = new Thickness(0, 10, 0, 0) }; keyProfileManagerButton.Click += (_, _) => { if (keyProfileManagerPanel == null) return; keyProfileManagerPanel.Visibility = keyProfileManagerPanel.Visibility == Visibility.Visible ? Visibility.Collapsed : Visibility.Visible; keyProfileManagerButton.Content = $"键位方案：{settings.ActiveKeyProfile}  {(keyProfileManagerPanel.Visibility == Visibility.Visible ? "▲" : "▼")}"; };
-        editor.Children.Insert(3, keyProfileManagerButton); editor.Children.Insert(4, box); RefreshKeyProfileSelector();
+        var languagePanel = new StackPanel { Margin = new Thickness(0, 10, 0, 0) };
+        languagePanel.Children.Add(new TextBlock { Text = "键位名称显示", Foreground = new SolidColorBrush(Color.FromRgb(175, 199, 221)), Margin = new Thickness(0, 0, 0, 6) });
+        var languageCombo = new ComboBox { ItemsSource = new[] { "中文", "English", "中英双语" }, SelectedItem = settings.KeyDisplayLanguage };
+        languageCombo.SelectionChanged += (_, _) => { if (languageCombo.SelectedItem is not string language) return; settings.KeyDisplayLanguage = language; foreach (var key in allKeys) key.DisplayLanguage = language; SettingsStore.Save(settings); RefreshKeyList(); };
+        languagePanel.Children.Add(languageCombo);
+        editor.Children.Insert(3, languagePanel); editor.Children.Insert(4, keyProfileManagerButton); editor.Children.Insert(5, box); RefreshKeyProfileSelector();
+        BuildKeyListTemplate();
         countConflictCheck = new CheckBox { Content = "计入冲突检测", IsChecked = true, Margin = new Thickness(0, 8, 0, 8), ToolTip = "关闭后，这个功能即使与其他功能使用同一按键，也不会被标为冲突。" };
         countConflictCheck.Checked += ConflictParticipation_Changed; countConflictCheck.Unchecked += ConflictParticipation_Changed;
         if (FindButtonByContent(editor, "清除绑定") is { } clearButton) editor.Children.Insert(editor.Children.IndexOf(clearButton) + 1, countConflictCheck); else editor.Children.Add(countConflictCheck);
+    }
+
+    private void BuildKeyListTemplate()
+    {
+        var template = new DataTemplate(typeof(KeyBindingItem));
+        var grid = new FrameworkElementFactory(typeof(DockPanel));
+        var function = new FrameworkElementFactory(typeof(TextBlock));
+        function.SetBinding(TextBlock.TextProperty, new System.Windows.Data.Binding(nameof(KeyBindingItem.FunctionDisplay)));
+        function.SetValue(TextBlock.ForegroundProperty, new SolidColorBrush(Color.FromRgb(247, 250, 255)));
+        function.SetValue(TextBlock.TextWrappingProperty, TextWrapping.Wrap);
+        function.SetValue(FrameworkElement.VerticalAlignmentProperty, VerticalAlignment.Center);
+        var mod = new FrameworkElementFactory(typeof(TextBlock));
+        mod.SetBinding(TextBlock.TextProperty, new System.Windows.Data.Binding(nameof(KeyBindingItem.ModDisplayName)));
+        mod.SetValue(DockPanel.DockProperty, Dock.Right); mod.SetValue(FrameworkElement.WidthProperty, 245d); mod.SetValue(FrameworkElement.MarginProperty, new Thickness(14, 0, 14, 0)); mod.SetValue(TextBlock.ForegroundProperty, new SolidColorBrush(Color.FromRgb(99, 201, 255))); mod.SetValue(TextBlock.TextWrappingProperty, TextWrapping.Wrap);
+        var key = new FrameworkElementFactory(typeof(TextBlock));
+        key.SetBinding(TextBlock.TextProperty, new System.Windows.Data.Binding(nameof(KeyBindingItem.KeyLabel)));
+        key.SetValue(DockPanel.DockProperty, Dock.Right); key.SetValue(FrameworkElement.WidthProperty, 110d); key.SetValue(TextBlock.ForegroundProperty, Brushes.White); key.SetValue(FrameworkElement.HorizontalAlignmentProperty, HorizontalAlignment.Right); key.SetValue(FrameworkElement.VerticalAlignmentProperty, VerticalAlignment.Center);
+        grid.AppendChild(key); grid.AppendChild(mod); grid.AppendChild(function);
+        template.VisualTree = grid; KeyList.ItemTemplate = template;
+    }
+
+    private void InitializeToastLayer()
+    {
+        if (Content is not Grid root) return;
+        var body = new StackPanel();
+        toastIcon = new TextBlock { Text = "✓", FontSize = 19, FontWeight = FontWeights.Bold, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 12, 0) };
+        toastTitle = new TextBlock { Foreground = Brushes.White, FontSize = 15, FontWeight = FontWeights.SemiBold };
+        toastMessage = new TextBlock { Foreground = new SolidColorBrush(Color.FromRgb(205, 220, 234)), TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 3, 0, 0) };
+        body.Children.Add(toastTitle); body.Children.Add(toastMessage);
+        var row = new DockPanel(); row.Children.Add(toastIcon); row.Children.Add(body);
+        toastHost = new Border { Child = row, Background = new SolidColorBrush(Color.FromArgb(246, 14, 27, 39)), BorderBrush = new SolidColorBrush(Color.FromRgb(40, 169, 235)), BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(11), Padding = new Thickness(16, 12, 20, 12), MinWidth = 380, MaxWidth = 720, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Top, Margin = new Thickness(20, 66, 20, 0), Visibility = Visibility.Collapsed, Opacity = 0, RenderTransform = new TranslateTransform(0, -12) };
+        Panel.SetZIndex(toastHost, 10000); root.Children.Add(toastHost);
+    }
+
+    private async void ShowToast(string title, string message, bool success, int milliseconds = 3600)
+    {
+        if (toastHost == null || toastTitle == null || toastMessage == null || toastIcon == null) return;
+        toastCancellation?.Cancel(); toastCancellation?.Dispose(); toastCancellation = new CancellationTokenSource(); var token = toastCancellation.Token;
+        toastTitle.Text = title; toastMessage.Text = message; toastIcon.Text = success ? "✓" : "!";
+        var accent = new SolidColorBrush(success ? Color.FromRgb(48, 203, 125) : Color.FromRgb(255, 103, 112)); toastIcon.Foreground = accent; toastHost.BorderBrush = accent;
+        toastHost.Visibility = Visibility.Visible;
+        toastHost.BeginAnimation(OpacityProperty, new DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(160)));
+        if (toastHost.RenderTransform is TranslateTransform transform) transform.BeginAnimation(TranslateTransform.YProperty, new DoubleAnimation(-12, 0, TimeSpan.FromMilliseconds(180)) { EasingFunction = new QuadraticEase { EasingMode = EasingMode.EaseOut } });
+        try { await Task.Delay(milliseconds, token); } catch (OperationCanceledException) { return; }
+        var fade = new DoubleAnimation(1, 0, TimeSpan.FromMilliseconds(180)); fade.Completed += (_, _) => { if (!token.IsCancellationRequested) toastHost.Visibility = Visibility.Collapsed; }; toastHost.BeginAnimation(OpacityProperty, fade);
     }
 
     private static Button? FindButtonByContent(DependencyObject root, string text)
@@ -118,6 +175,7 @@ public partial class MainWindow : Window
     private void Navigate(object sender, RoutedEventArgs e)
     {
         if (!IsLoaded) return; var index = int.Parse((string)((RadioButton)sender).Tag);
+        ApplyInstanceButton.Visibility = index == 0 ? Visibility.Collapsed : Visibility.Visible;
         HomePage.Visibility = index == 0 ? Visibility.Visible : Visibility.Collapsed; PacksPage.Visibility = index == 1 ? Visibility.Visible : Visibility.Collapsed; ShadersPage.Visibility = index == 2 ? Visibility.Visible : Visibility.Collapsed; KeysPage.Visibility = index == 3 ? Visibility.Visible : Visibility.Collapsed; if (modConfigsPage != null) modConfigsPage.Visibility = index == 4 ? Visibility.Visible : Visibility.Collapsed; if (favoriteModsPage != null) favoriteModsPage.Visibility = index == 5 ? Visibility.Visible : Visibility.Collapsed;
         PageTitle.Text = new[] { "概览", "资源包排序", "光影包覆盖", "可视化键位", "Mod 配置", "Mod 收藏与下载" }[index];
         PageSubtitle.Text = new[] { "选择整合包实例，然后统一应用资源与键位。", "拖动调整优先级；不会阻止版本不兼容的资源包。", "固定库存，一键覆盖到任意新整合包。", "从键盘占用定位冲突，再按 Mod 保存专属键位。", "管理不写入 options.txt 的独立快捷键、开关和列表配置。", "从 Modrinth、CurseForge 与 GitHub 收藏 Mod，并为新实例选择兼容版本。" }[index];
@@ -227,7 +285,7 @@ public partial class MainWindow : Window
             var mod = MinecraftConfig.MatchKeyToMod(pair.Key, mods); var translationKey = pair.Key[4..];
             mod.EnglishTranslations.TryGetValue(translationKey, out var english); mod.ChineseTranslations.TryGetValue(translationKey, out var chinese);
             english = string.IsNullOrWhiteSpace(english) ? Humanize(pair.Key) : english; chinese ??= "";
-            var item = new KeyBindingItem { OptionKey = pair.Key, DisplayName = string.IsNullOrWhiteSpace(chinese) ? english : chinese, FunctionEnglish = english, FunctionChinese = chinese, ModId = mod.Id, ModDisplayName = mod.DisplayName, IsLibrary = mod.IsLibrary, OriginalValue = pair.Value, Value = pair.Value, Remember = includeInDraft };
+            var item = new KeyBindingItem { OptionKey = pair.Key, DisplayName = string.IsNullOrWhiteSpace(chinese) ? english : chinese, FunctionEnglish = english, FunctionChinese = chinese, DisplayLanguage = settings.KeyDisplayLanguage, ModId = mod.Id, ModDisplayName = mod.DisplayName, IsLibrary = mod.IsLibrary, OriginalValue = pair.Value, Value = pair.Value, Remember = includeInDraft };
             if (!includeInDraft && settings.KeyProfiles.TryGetValue(settings.ActiveKeyProfile, out var keyProfile)) { if (keyProfile.ModBindings.TryGetValue(mod.Id, out var savedMap) && savedMap.TryGetValue(pair.Key, out var saved)) { item.Value = saved; item.Remember = true; } item.CountsAsConflict = !keyProfile.ConflictExcluded.Contains(pair.Key); } allKeys.Add(item);
         }
         ModFilter.ItemsSource = new[] { "全部有键位的 Mod" }.Concat(allKeys.GroupBy(k => k.ModId).Select(g => g.First().ModDisplayName).Order()).ToList(); ModFilter.SelectedIndex = 0; RefreshKeyList(); BuildKeyboard(); RefreshModConfigPage(); RefreshSummary(); DetectAndSelectInstanceEnvironment(true); RefreshFavoriteModStatus(); StatusText.Text = $"已导入 {Path.GetFileName(instance)}：{allKeys.Select(k => k.ModId).Distinct().Count()} 个有键位 Mod，{allKeys.Count} 个键位";
@@ -449,7 +507,7 @@ public partial class MainWindow : Window
     private void KeyFilterChanged(object sender, EventArgs e) { if (IsLoaded) RefreshKeyList(); }
     private void RefreshKeyList()
     {
-        if (KeyList == null) return; IEnumerable<KeyBindingItem> q = allKeys; if (!string.IsNullOrWhiteSpace(selectedPhysicalKey)) q = q.Where(k => GetPhysicalKey(k.Value).Equals(selectedPhysicalKey, StringComparison.OrdinalIgnoreCase)); if (!string.IsNullOrWhiteSpace(KeySearch.Text)) q = q.Where(k => (k.FunctionDisplay + k.OptionKey + k.ModDisplayName + k.ModId + k.KeyLabel).Contains(KeySearch.Text, StringComparison.OrdinalIgnoreCase)); if (ModFilter.SelectedItem is string mod && mod != "全部有键位的 Mod") q = q.Where(k => k.ModDisplayName == mod); if (ConflictOnly.IsChecked == true) { var c = allKeys.Where(k => k.CountsAsConflict && !k.Value.EndsWith("unknown")).GroupBy(k => k.Value).Where(g => g.Count() > 1).Select(g => g.Key).ToHashSet(); q = q.Where(k => k.CountsAsConflict && c.Contains(k.Value)); } KeyList.ItemsSource = q.ToList();
+        if (KeyList == null) return; IEnumerable<KeyBindingItem> q = allKeys; if (!string.IsNullOrWhiteSpace(selectedPhysicalKey)) q = q.Where(k => GetPhysicalKey(k.Value).Equals(selectedPhysicalKey, StringComparison.OrdinalIgnoreCase)); if (!string.IsNullOrWhiteSpace(KeySearch.Text)) q = q.Where(k => (k.FunctionChinese + k.FunctionEnglish + k.OptionKey + k.ModDisplayName + k.ModId + k.KeyLabel).Contains(KeySearch.Text, StringComparison.OrdinalIgnoreCase)); if (ModFilter.SelectedItem is string mod && mod != "全部有键位的 Mod") q = q.Where(k => k.ModDisplayName == mod); if (ConflictOnly.IsChecked == true) { var c = allKeys.Where(k => k.CountsAsConflict && !k.Value.EndsWith("unknown")).GroupBy(k => k.Value).Where(g => g.Count() > 1).Select(g => g.Key).ToHashSet(); q = q.Where(k => k.CountsAsConflict && c.Contains(k.Value)); } KeyList.ItemsSource = q.ToList();
     }
     private void BuildKeyboard()
     {
@@ -538,8 +596,8 @@ public partial class MainWindow : Window
 
     private void Apply_Click(object sender, RoutedEventArgs e)
     {
-        if (string.IsNullOrWhiteSpace(instance)) { AppDialog.Show(this, "请先导入一个 MC 游戏文件夹。", "尚未选择实例"); return; }
-        try { MinecraftConfig.MirrorLibrary(settings.PackLibrary, Path.Combine(instance, "resourcepacks")); MinecraftConfig.MirrorLibrary(settings.ShaderLibrary, Path.Combine(instance, "shaderpacks")); var changes = allKeys.ToDictionary(k => k.OptionKey, k => k.Value, StringComparer.Ordinal); changes["resourcePacks"] = MinecraftConfig.ResourcePackValue(packs); MinecraftConfig.PatchOptions(instance, changes); ApplyShaderSelection(); StatusText.Text = $"应用完成：{DateTime.Now:HH:mm:ss}（配置草稿未自动保存）"; AppDialog.Show(this, "当前草稿已写入实例；资源包和键位模板未自动保存。", "应用完成", MessageBoxButton.OK, MessageBoxImage.Information); } catch (Exception ex) { AppDialog.Show(this, ex.Message, "应用失败", MessageBoxButton.OK, MessageBoxImage.Error); }
+        if (string.IsNullOrWhiteSpace(instance)) { ShowToast("无法覆盖", "尚未选择 Minecraft 实例，请先导入游戏文件夹。", false, 5200); return; }
+        try { MinecraftConfig.MirrorLibrary(settings.PackLibrary, Path.Combine(instance, "resourcepacks")); MinecraftConfig.MirrorLibrary(settings.ShaderLibrary, Path.Combine(instance, "shaderpacks")); var changes = allKeys.ToDictionary(k => k.OptionKey, k => k.Value, StringComparer.Ordinal); changes["resourcePacks"] = MinecraftConfig.ResourcePackValue(packs); MinecraftConfig.PatchOptions(instance, changes); ApplyShaderSelection(); StatusText.Text = $"应用完成：{DateTime.Now:HH:mm:ss}（配置草稿未自动保存）"; ShowToast("覆盖成功", $"已覆盖当前实例的资源包、光影选择和 {allKeys.Count} 个键位；草稿方案未自动保存。", true); } catch (Exception ex) { StatusText.Text = "覆盖实例失败"; ShowToast("覆盖失败", $"未能写入当前实例：{ex.Message}", false, 6500); }
     }
     private void ApplyShaderSelection() { if (string.IsNullOrWhiteSpace(draftSelectedShader)) return; PatchProperty(Path.Combine(instance, "config", "iris.properties"), "shaderPack", draftSelectedShader); PatchProperty(Path.Combine(instance, "optionsof.txt"), "ofShaderPack", draftSelectedShader); }
     private static void PatchProperty(string file, string key, string value) { if (!File.Exists(file)) return; File.Copy(file, file + ".mcprofilestudio.bak", true); var lines = File.ReadAllLines(file).ToList(); var i = lines.FindIndex(x => x.StartsWith(key + "=", StringComparison.Ordinal)); if (i >= 0) lines[i] = key + "=" + value; else lines.Add(key + "=" + value); File.WriteAllLines(file, lines); }

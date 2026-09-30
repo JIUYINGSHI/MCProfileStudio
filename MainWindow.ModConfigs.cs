@@ -1035,12 +1035,12 @@ public partial class MainWindow
                 else { var profileFile = Path.Combine(source, Path.GetFileName(draft.SourcePath)); if (!File.Exists(profileFile)) continue; BackupModConfig(draft.SourcePath); Directory.CreateDirectory(Path.GetDirectoryName(draft.SourcePath)!); MakeFileWritable(draft.SourcePath); File.Copy(profileFile, draft.SourcePath, true); }
                 applied++;
             }
-            StatusText.Text = $"已覆盖 {applied} 个已安装 Mod 的独立配置"; AppDialog.Show(this, $"已应用 {applied} 个 Mod 配置。写入前已生成 .mcprofilestudio.bak 备份。\n请在 Minecraft 关闭时执行覆盖，部分 Mod 只会在下次启动时读取配置。", "Mod 配置已应用", MessageBoxButton.OK, MessageBoxImage.Information);
+            StatusText.Text = $"已覆盖 {applied} 个已安装 Mod 的独立配置"; ShowToast("Mod 配置覆盖成功", $"已覆盖 {applied} 个已安装 Mod 的独立配置，并为原文件创建 .mcprofilestudio.bak 备份。", true);
         }
         catch (Exception ex)
         {
             StatusText.Text = "应用 Mod 配置失败";
-            AppDialog.Show(this, $"应用 Mod 配置失败：\n{ex.Message}\n\n已写入的文件均保留了 .mcprofilestudio.bak 备份。", "应用失败", MessageBoxButton.OK, MessageBoxImage.Error);
+            ShowToast("Mod 配置覆盖失败", $"未能完成覆盖：{ex.Message}；已写入文件仍保留 .mcprofilestudio.bak 备份。", false, 6500);
         }
     }
 

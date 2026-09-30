@@ -26,6 +26,7 @@ public class KeyBindingItem : INotifyPropertyChanged
     private string _value = "key.keyboard.unknown";
     private bool _remember;
     private bool _countsAsConflict = true;
+    private string _displayLanguage = "中英双语";
     public string OptionKey { get; set; } = "";
     public string DisplayName { get; set; } = "";
     public string ModId { get; set; } = "minecraft";
@@ -33,7 +34,13 @@ public class KeyBindingItem : INotifyPropertyChanged
     public bool IsLibrary { get; set; }
     public string FunctionEnglish { get; set; } = "";
     public string FunctionChinese { get; set; } = "";
-    public string FunctionDisplay => string.IsNullOrWhiteSpace(FunctionChinese) || FunctionChinese == FunctionEnglish ? FunctionEnglish : $"{FunctionChinese}  ·  {FunctionEnglish}";
+    public string DisplayLanguage { get => _displayLanguage; set { _displayLanguage = value; OnChanged(); OnChanged(nameof(FunctionDisplay)); } }
+    public string FunctionDisplay => DisplayLanguage switch
+    {
+        "中文" => string.IsNullOrWhiteSpace(FunctionChinese) ? FunctionEnglish : FunctionChinese,
+        "English" => FunctionEnglish,
+        _ => string.IsNullOrWhiteSpace(FunctionChinese) || FunctionChinese == FunctionEnglish ? FunctionEnglish : $"{FunctionChinese}  ·  {FunctionEnglish}"
+    };
     public string OriginalValue { get; set; } = "";
     public string Value { get => _value; set { _value = value; OnChanged(); OnChanged(nameof(KeyLabel)); } }
     public bool Remember { get => _remember; set { _remember = value; OnChanged(); } }
@@ -59,6 +66,7 @@ public class AppSettings
     public Dictionary<string, PackProfile> PackProfiles { get; set; } = new(StringComparer.OrdinalIgnoreCase);
     public string ActiveModConfigProfile { get; set; } = "默认 Mod 配置";
     public string ModConfigLanguage { get; set; } = "中文优先";
+    public string KeyDisplayLanguage { get; set; } = "中英双语";
     public List<FavoriteMod> FavoriteMods { get; set; } = [];
     public string CurseForgeApiKey { get; set; } = "";
     public string GitHubToken { get; set; } = "";
