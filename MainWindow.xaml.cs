@@ -10,6 +10,7 @@ using System.Windows.Media.Media3D;
 using System.Windows.Media.Animation;
 using System.Runtime.InteropServices;
 using System.Windows.Interop;
+using System.Windows.Threading;
 
 namespace McProfileStudio;
 
@@ -23,6 +24,12 @@ public partial class MainWindow : Window
     private Dictionary<string, ModInfo> mods = new(StringComparer.OrdinalIgnoreCase);
     private Point dragStart; private bool capturing;
     private ListBox? disabledPackList, enabledPackList;
+    private readonly DispatcherTimer packDragScrollTimer = new() { Interval = TimeSpan.FromMilliseconds(45) };
+    private ListBox? packDragScrollList;
+    private int packDragScrollDirection;
+    private bool packDragInProgress;
+    private IntPtr packMouseHook;
+    private readonly LowLevelMouseProc packMouseHookProc;
     private ComboBox? packProfileCombo;
     private bool switchingProfile;
     private ComboBox? keyProfileCombo;
@@ -45,7 +52,8 @@ public partial class MainWindow : Window
 
     public MainWindow()
     {
-        EnsurePackProfiles(); EnsureKeyProfiles(); EnsureFavoriteModProfiles(); draftSelectedShader = settings.SelectedShader; InitializeComponent(); InitializeToastLayer(); ApplyMinecraftNavIcons(); PackList.ItemsSource = packs; ShaderList.ItemsSource = shaders; BuildPackManager(); BuildDraftControls(); BuildModConfigPage(); BuildFavoriteModsPage(); BuildDataToolsCard(); EnableHomeScrolling();
+        packMouseHookProc = PackMouseHookCallback;
+        EnsurePackProfiles(); EnsureKeyProfiles(); EnsureFavoriteModProfiles(); draftSelectedShader = settings.SelectedShader; InitializeComponent(); InitializeToastLayer(); packDragScrollTimer.Tick += PackDragScrollTimer_Tick; ApplyMinecraftNavIcons(); PackList.ItemsSource = packs; ShaderList.ItemsSource = shaders; BuildPackManager(); BuildDraftControls(); BuildModConfigPage(); BuildFavoriteModsPage(); BuildDataToolsCard(); EnableHomeScrolling();
         LayoutCombo.ItemsSource = KeyboardLayouts.Keys; LayoutCombo.SelectedItem = KeyboardLayouts.ContainsKey(settings.KeyboardLayout) ? settings.KeyboardLayout : "108 键全尺寸";
         SourceInitialized += (_, _) => EnableMica(); Loaded += (_, _) => { ReloadLibraries(); RefreshSummary(); FitKeyboard(); }; SizeChanged += (_, _) => FitKeyboard();
     }
@@ -377,10 +385,10 @@ public partial class MainWindow : Window
     }
 
     private void PackList_MouseDown(object sender, MouseButtonEventArgs e) => dragStart = e.GetPosition(null);
-    protected override void OnMouseMove(MouseEventArgs e) { base.OnMouseMove(e); var list = e.OriginalSource is DependencyObject d ? FindParent<ListBox>(d) : null; if (e.LeftButton != MouseButtonState.Pressed || list?.SelectedItem is not PackItem item) return; var p = e.GetPosition(null); if (Math.Abs(p.X - dragStart.X) + Math.Abs(p.Y - dragStart.Y) > 8) DragDrop.DoDragDrop(list, item, DragDropEffects.Move); }
+    protected override void OnMouseMove(MouseEventArgs e) { base.OnMouseMove(e); var list = e.OriginalSource is DependencyObject d ? FindParent<ListBox>(d) : null; if (e.LeftButton != MouseButtonState.Pressed || list?.SelectedItem is not PackItem item) return; var p = e.GetPosition(null); if (Math.Abs(p.X - dragStart.X) + Math.Abs(p.Y - dragStart.Y) > 8) { try { packDragInProgress = true; InstallPackMouseHook(); DragDrop.DoDragDrop(list, item, DragDropEffects.Move); } finally { RemovePackMouseHook(); packDragInProgress = false; StopPackDragAutoScroll(); } } }
     private void PackList_Drop(object sender, DragEventArgs e)
     {
-        if (e.Data.GetData(typeof(PackItem)) is not PackItem source || sender is not ListBox destination) return; source.Enabled = destination == enabledPackList; var element = destination.InputHitTest(e.GetPosition(destination)) as DependencyObject; while (element != null && element is not ListBoxItem) element = VisualTreeHelper.GetParent(element); var target = (element as ListBoxItem)?.DataContext as PackItem; if (target != null && source != target) { var index = packs.IndexOf(target); packs.Remove(source); packs.Insert(Math.Max(0, index), source); } RefreshPackColumns(); StatusText.Text = "资源包配置已修改（尚未保存）";
+        StopPackDragAutoScroll(); if (e.Data.GetData(typeof(PackItem)) is not PackItem source || sender is not ListBox destination) return; source.Enabled = destination == enabledPackList; var element = destination.InputHitTest(e.GetPosition(destination)) as DependencyObject; while (element != null && element is not ListBoxItem) element = VisualTreeHelper.GetParent(element); var target = (element as ListBoxItem)?.DataContext as PackItem; if (target != null && source != target) { var index = packs.IndexOf(target); packs.Remove(source); packs.Insert(Math.Max(0, index), source); } RefreshPackColumns(); StatusText.Text = "资源包配置已修改（尚未保存）";
     }
     private void SavePackProfile() { var profile = settings.PackProfiles[settings.ActivePackProfile]; profile.PackOrder = packs.Select(p => p.Name).ToList(); profile.EnabledPacks = packs.Where(p => p.Enabled).Select(p => p.Name).ToList(); settings.PackOrder = profile.PackOrder.ToList(); settings.EnabledPacks = profile.EnabledPacks.ToList(); settings.SelectedShader = draftSelectedShader; SettingsStore.Save(settings); if (packProfileCombo != null) packProfileCombo.ToolTip = null; StatusText.Text = $"已保存资源包配置：{settings.ActivePackProfile}"; }
 
@@ -395,12 +403,77 @@ public partial class MainWindow : Window
     }
     private ListBox CreatePackColumn(string title, DataTemplate template, bool enabled, int column)
     {
-        var list = new ListBox { ItemTemplate = template, AllowDrop = true }; ScrollViewer.SetHorizontalScrollBarVisibility(list, ScrollBarVisibility.Disabled); list.PreviewMouseLeftButtonDown += PackList_MouseDown; list.Drop += PackList_Drop;
+        var list = new ListBox { ItemTemplate = template, AllowDrop = true }; ScrollViewer.SetHorizontalScrollBarVisibility(list, ScrollBarVisibility.Disabled); list.PreviewMouseLeftButtonDown += PackList_MouseDown; list.PreviewMouseWheel += PackList_MouseWheel; list.DragOver += PackList_DragOver; list.DragLeave += (_, _) => { if (packDragScrollList == list) StopPackDragAutoScroll(); }; list.Drop += PackList_Drop;
         var panel = new DockPanel(); var header = new TextBlock { Text = title, FontSize = 18, Foreground = Brushes.White, Margin = new Thickness(4, 0, 0, 12) }; DockPanel.SetDock(header, Dock.Top); panel.Children.Add(header); panel.Children.Add(list);
-        list.MouseDoubleClick += (_, _) => { if (list.SelectedItem is PackItem item) { item.Enabled = !enabled; RefreshPackColumns(); StatusText.Text = "资源包配置已修改（尚未保存）"; } };
+        list.MouseDoubleClick += (_, _) => { if (list.SelectedItem is PackItem item) { if (!enabled) { packs.Remove(item); item.Enabled = true; packs.Insert(0, item); } else item.Enabled = false; RefreshPackColumns(); enabledPackList?.ScrollIntoView(item); StatusText.Text = "资源包配置已修改（尚未保存）"; } };
         var border = new Border { Background = new SolidColorBrush(Color.FromArgb(190, 27, 27, 27)), BorderBrush = new SolidColorBrush(Color.FromArgb(55, 255, 255, 255)), BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(18), Padding = new Thickness(14), Margin = column == 0 ? new Thickness(0, 0, 7, 14) : new Thickness(7, 0, 0, 14), Child = panel }; Grid.SetColumn(border, column); Grid.SetRow(border, 1); PacksPage.Children.Add(border); return list;
     }
     private void RefreshPackColumns() { if (disabledPackList == null || enabledPackList == null) return; disabledPackList.ItemsSource = packs.Where(p => !p.Enabled).ToList(); enabledPackList.ItemsSource = packs.Where(p => p.Enabled).ToList(); }
+
+    private void PackList_MouseWheel(object sender, MouseWheelEventArgs e)
+    {
+        if (sender is not ListBox list || FindVisualChild<ScrollViewer>(list) is not { } scroll) return;
+        scroll.ScrollToVerticalOffset(scroll.VerticalOffset - e.Delta / 3.0); e.Handled = true;
+    }
+
+    private void InstallPackMouseHook()
+    {
+        if (packMouseHook == IntPtr.Zero) packMouseHook = SetWindowsHookEx(14, packMouseHookProc, IntPtr.Zero, 0);
+    }
+
+    private void RemovePackMouseHook()
+    {
+        if (packMouseHook == IntPtr.Zero) return;
+        UnhookWindowsHookEx(packMouseHook); packMouseHook = IntPtr.Zero;
+    }
+
+    private IntPtr PackMouseHookCallback(int code, IntPtr wParam, IntPtr lParam)
+    {
+        const int wmMouseWheel = 0x020A;
+        if (code >= 0 && wParam == (IntPtr)wmMouseWheel && packDragInProgress)
+        {
+            var data = Marshal.PtrToStructure<MsllHookStruct>(lParam);
+            var delta = unchecked((short)(data.MouseData >> 16));
+            if (ScrollPackListAtScreenPoint(new Point(data.Point.X, data.Point.Y), delta)) return (IntPtr)1;
+        }
+        return CallNextHookEx(packMouseHook, code, wParam, lParam);
+    }
+
+    private bool ScrollPackListAtScreenPoint(Point screenPoint, int delta)
+    {
+        var list = IsScreenPointInside(disabledPackList, screenPoint) ? disabledPackList : IsScreenPointInside(enabledPackList, screenPoint) ? enabledPackList : null;
+        if (list == null || FindVisualChild<ScrollViewer>(list) is not { } scroll) return false;
+        scroll.ScrollToVerticalOffset(scroll.VerticalOffset - delta / 3.0);
+        return true;
+    }
+
+    private static bool IsScreenPointInside(FrameworkElement? element, Point screenPoint)
+    {
+        if (element == null || !element.IsVisible || element.ActualWidth <= 0 || element.ActualHeight <= 0) return false;
+        var local = element.PointFromScreen(screenPoint);
+        return local.X >= 0 && local.Y >= 0 && local.X < element.ActualWidth && local.Y < element.ActualHeight;
+    }
+
+    private void PackList_DragOver(object sender, DragEventArgs e)
+    {
+        if (sender is not ListBox list || !e.Data.GetDataPresent(typeof(PackItem))) { StopPackDragAutoScroll(); return; }
+        var y = e.GetPosition(list).Y;
+        const double edge = 58;
+        var direction = list.ActualHeight > edge * 2 ? y < edge ? -1 : y > list.ActualHeight - edge ? 1 : 0 : 0;
+        if (direction == 0) { StopPackDragAutoScroll(); return; }
+        packDragScrollList = list; packDragScrollDirection = direction;
+        if (!packDragScrollTimer.IsEnabled) packDragScrollTimer.Start();
+        e.Effects = DragDropEffects.Move; e.Handled = true;
+    }
+
+    private void PackDragScrollTimer_Tick(object? sender, EventArgs e)
+    {
+        if (packDragScrollList == null || packDragScrollDirection == 0 || FindVisualChild<ScrollViewer>(packDragScrollList) is not { } scroll) { StopPackDragAutoScroll(); return; }
+        scroll.ScrollToVerticalOffset(scroll.VerticalOffset + packDragScrollDirection * 18);
+    }
+
+    private void StopPackDragAutoScroll() { packDragScrollTimer.Stop(); packDragScrollList = null; packDragScrollDirection = 0; }
+    private static T? FindVisualChild<T>(DependencyObject root) where T : DependencyObject { for (var i = 0; i < VisualTreeHelper.GetChildrenCount(root); i++) { var child = VisualTreeHelper.GetChild(root, i); if (child is T found) return found; if (FindVisualChild<T>(child) is { } nested) return nested; } return null; }
     private static T? FindParent<T>(DependencyObject? current) where T : DependencyObject
     {
         while (current != null)
@@ -669,6 +742,12 @@ public partial class MainWindow : Window
     private void CloseWindow_Click(object sender, RoutedEventArgs e) => Close();
     private void ToggleWindowState() => WindowState = WindowState == WindowState.Maximized ? WindowState.Normal : WindowState.Maximized;
 
+    private delegate IntPtr LowLevelMouseProc(int code, IntPtr wParam, IntPtr lParam);
+    [StructLayout(LayoutKind.Sequential)] private struct NativePoint { public int X; public int Y; }
+    [StructLayout(LayoutKind.Sequential)] private struct MsllHookStruct { public NativePoint Point; public uint MouseData; public uint Flags; public uint Time; public IntPtr ExtraInfo; }
+    [DllImport("user32.dll", SetLastError = true)] private static extern IntPtr SetWindowsHookEx(int idHook, LowLevelMouseProc callback, IntPtr module, uint threadId);
+    [DllImport("user32.dll", SetLastError = true)] [return: MarshalAs(UnmanagedType.Bool)] private static extern bool UnhookWindowsHookEx(IntPtr hook);
+    [DllImport("user32.dll")] private static extern IntPtr CallNextHookEx(IntPtr hook, int code, IntPtr wParam, IntPtr lParam);
     [DllImport("dwmapi.dll")] private static extern int DwmSetWindowAttribute(IntPtr hwnd, int attribute, ref int value, int size);
     private void EnableMica() { try { var hwnd = new WindowInteropHelper(this).Handle; var enabled = 1; DwmSetWindowAttribute(hwnd, 20, ref enabled, sizeof(int)); var backdrop = 2; DwmSetWindowAttribute(hwnd, 38, ref backdrop, sizeof(int)); } catch { } }
 }
