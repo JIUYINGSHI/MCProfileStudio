@@ -7,7 +7,7 @@ namespace McProfileStudio;
 
 internal static class AppDialog
 {
-    private static readonly Brush Panel = new SolidColorBrush(Color.FromRgb(14, 22, 31));
+    private static readonly Brush Panel = new SolidColorBrush(Color.FromRgb(25, 25, 25));
     private static readonly Brush Muted = new SolidColorBrush(Color.FromRgb(174, 190, 207));
     private static readonly Brush Accent = new SolidColorBrush(Color.FromRgb(49, 183, 255));
 
@@ -43,7 +43,7 @@ internal static class AppDialog
         var actions = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 22, 0, 0) };
         void AddButton(string label, MessageBoxResult value, bool primary = false)
         {
-            var button = new Button { Content = label, MinWidth = 94, Margin = new Thickness(8, 0, 0, 0), Background = primary ? new SolidColorBrush(Color.FromRgb(17, 126, 207)) : new SolidColorBrush(Color.FromRgb(58, 58, 58)) };
+            var button = new Button { Content = label, MinWidth = 94, Margin = new Thickness(8, 0, 0, 0), Background = new SolidColorBrush(primary ? Color.FromRgb(74, 74, 74) : Color.FromRgb(52, 52, 52)) };
             button.Click += (_, _) => { result = value; dialog.DialogResult = true; };
             actions.Children.Add(button);
         }
@@ -85,7 +85,7 @@ internal static class AppDialog
         var root = new Border
         {
             Background = Panel,
-            BorderBrush = new SolidColorBrush(Color.FromArgb(110, 49, 183, 255)),
+            BorderBrush = new SolidColorBrush(Color.FromArgb(110, 92, 92, 92)),
             BorderThickness = new Thickness(1),
             CornerRadius = new CornerRadius(14),
             ClipToBounds = true
@@ -93,7 +93,7 @@ internal static class AppDialog
         var layout = new Grid();
         layout.RowDefinitions.Add(new RowDefinition { Height = new GridLength(48) });
         layout.RowDefinitions.Add(new RowDefinition());
-        var header = new Grid { Background = new SolidColorBrush(Color.FromArgb(190, 22, 34, 46)) };
+        var header = new Grid { Background = new SolidColorBrush(Color.FromArgb(220, 34, 34, 34)) };
         header.ColumnDefinitions.Add(new ColumnDefinition());
         header.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         header.MouseLeftButtonDown += (_, e) => { if (e.ButtonState == MouseButtonState.Pressed) dialog.DragMove(); };

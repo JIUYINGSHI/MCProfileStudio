@@ -4,7 +4,7 @@
              xmlns:local="clr-namespace:McProfileStudio"
              Height="74" MinWidth="0" HorizontalAlignment="Stretch"
              ToolTipService.InitialShowDelay="650" ToolTipService.ShowDuration="30000">
-  <Border Background="#6A172432" CornerRadius="8" ClipToBounds="True">
+  <Border Background="#6A292929" CornerRadius="8" ClipToBounds="True">
     <Grid Margin="8,7">
       <Grid.ColumnDefinitions><ColumnDefinition Width="60"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
       <Border Width="60" Height="60" CornerRadius="4" ClipToBounds="True" Background="#353A3A3A" VerticalAlignment="Stretch">
@@ -12,7 +12,7 @@
           <Image.ToolTip><StackPanel><TextBlock Text="{Binding Name}" FontWeight="SemiBold"/><Image Source="{Binding PreviewImage}" Width="160" Height="160" Stretch="Uniform" Margin="0,8,0,0"/></StackPanel></Image.ToolTip>
         </Image>
       </Border>
-      <Border Grid.Column="1" Margin="8,0,0,0" Height="60" VerticalAlignment="Center" CornerRadius="4" ClipToBounds="True" Background="#B90C151F">
+      <Border Grid.Column="1" Margin="8,0,0,0" Height="60" VerticalAlignment="Center" CornerRadius="4" ClipToBounds="True" Background="#B91D1D1D">
         <Grid>
           <Image Source="{Binding BannerImage}" Stretch="Uniform" HorizontalAlignment="Left" VerticalAlignment="Center" MaxHeight="60" RenderOptions.BitmapScalingMode="NearestNeighbor">
             <Image.ToolTip><Image Source="{Binding BannerImage}" MaxWidth="720" MaxHeight="180" Stretch="Uniform" RenderOptions.BitmapScalingMode="NearestNeighbor"/></Image.ToolTip>

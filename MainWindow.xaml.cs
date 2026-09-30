@@ -187,9 +187,9 @@ public partial class MainWindow : Window
     private string? PickFolder(string title) { var d = new OpenFolderDialog { Title = title, Multiselect = false }; return d.ShowDialog(this) == true ? d.FolderName : null; }
     private void PickInstance_Click(object sender, RoutedEventArgs e)
     {
-        var path = PickFolder("选择包含 options.txt、mods 的 MC 游戏文件夹"); if (path == null) return;
-        if (!File.Exists(Path.Combine(path, "options.txt"))) { AppDialog.Show(this, "该目录没有 options.txt。请选实例的游戏目录，并确保游戏至少启动过一次。", "无法导入", MessageBoxButton.OK, MessageBoxImage.Warning); return; }
+        var path = PickFolder("选择 Minecraft 游戏文件夹"); if (path == null) return;
         instance = path; InstanceLabel.Text = path; LoadInstance();
+        if (!File.Exists(Path.Combine(path, "options.txt"))) ShowToast("实例已导入", "首次应用时将创建 options.txt。", true, 3600);
     }
     private void ImportOptions_Click(object sender, RoutedEventArgs e)
     {
@@ -398,7 +398,7 @@ public partial class MainWindow : Window
         var list = new ListBox { ItemTemplate = template, AllowDrop = true }; ScrollViewer.SetHorizontalScrollBarVisibility(list, ScrollBarVisibility.Disabled); list.PreviewMouseLeftButtonDown += PackList_MouseDown; list.Drop += PackList_Drop;
         var panel = new DockPanel(); var header = new TextBlock { Text = title, FontSize = 18, Foreground = Brushes.White, Margin = new Thickness(4, 0, 0, 12) }; DockPanel.SetDock(header, Dock.Top); panel.Children.Add(header); panel.Children.Add(list);
         list.MouseDoubleClick += (_, _) => { if (list.SelectedItem is PackItem item) { item.Enabled = !enabled; RefreshPackColumns(); StatusText.Text = "资源包配置已修改（尚未保存）"; } };
-        var border = new Border { Background = new SolidColorBrush(Color.FromArgb(190, 14, 23, 32)), BorderBrush = new SolidColorBrush(Color.FromArgb(55, 255, 255, 255)), BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(18), Padding = new Thickness(14), Margin = column == 0 ? new Thickness(0, 0, 7, 14) : new Thickness(7, 0, 0, 14), Child = panel }; Grid.SetColumn(border, column); Grid.SetRow(border, 1); PacksPage.Children.Add(border); return list;
+        var border = new Border { Background = new SolidColorBrush(Color.FromArgb(190, 27, 27, 27)), BorderBrush = new SolidColorBrush(Color.FromArgb(55, 255, 255, 255)), BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(18), Padding = new Thickness(14), Margin = column == 0 ? new Thickness(0, 0, 7, 14) : new Thickness(7, 0, 0, 14), Child = panel }; Grid.SetColumn(border, column); Grid.SetRow(border, 1); PacksPage.Children.Add(border); return list;
     }
     private void RefreshPackColumns() { if (disabledPackList == null || enabledPackList == null) return; disabledPackList.ItemsSource = packs.Where(p => !p.Enabled).ToList(); enabledPackList.ItemsSource = packs.Where(p => p.Enabled).ToList(); }
     private static T? FindParent<T>(DependencyObject? current) where T : DependencyObject
@@ -499,11 +499,11 @@ public partial class MainWindow : Window
     private string? PromptForProfileName(string title, string initial)
     {
         var dialog = new Window { Owner = this, Title = title, Width = 460, Height = 235, WindowStartupLocation = WindowStartupLocation.CenterOwner, ResizeMode = ResizeMode.NoResize, WindowStyle = WindowStyle.None, AllowsTransparency = true, Background = Brushes.Transparent, FontFamily = (FontFamily)Application.Current.Resources["AppFont"] };
-        var root = new Border { Background = new SolidColorBrush(Color.FromArgb(248, 14, 22, 31)), BorderBrush = new SolidColorBrush(Color.FromArgb(100, 49, 183, 255)), BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(18), Padding = new Thickness(22), Effect = new System.Windows.Media.Effects.DropShadowEffect { BlurRadius = 35, ShadowDepth = 8, Opacity = .45, Color = Colors.Black } };
+        var root = new Border { Background = new SolidColorBrush(Color.FromArgb(248, 25, 25, 25)), BorderBrush = new SolidColorBrush(Color.FromArgb(100, 92, 92, 92)), BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(18), Padding = new Thickness(22), Effect = new System.Windows.Media.Effects.DropShadowEffect { BlurRadius = 35, ShadowDepth = 8, Opacity = .45, Color = Colors.Black } };
         var rows = new Grid(); rows.RowDefinitions.Add(new() { Height = GridLength.Auto }); rows.RowDefinitions.Add(new() { Height = GridLength.Auto }); rows.RowDefinitions.Add(new() { Height = GridLength.Auto }); rows.RowDefinitions.Add(new() { Height = GridLength.Auto });
         var heading = new DockPanel(); var close = new Button { Content = "×", Width = 34, Height = 30, Padding = new Thickness(0), Background = Brushes.Transparent, FontSize = 20 }; close.Click += (_, _) => dialog.DialogResult = false; DockPanel.SetDock(close, Dock.Right); heading.Children.Add(close); heading.Children.Add(new TextBlock { Text = title, Foreground = Brushes.White, FontSize = 20, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center }); Grid.SetRow(heading, 0); rows.Children.Add(heading);
         var hint = new TextBlock { Text = "请输入配置名称", Foreground = new SolidColorBrush(Color.FromRgb(174, 190, 207)), Margin = new Thickness(0, 14, 0, 7) }; Grid.SetRow(hint, 1); rows.Children.Add(hint);
-        var input = new TextBox { Text = initial, Foreground = Brushes.White, Background = new SolidColorBrush(Color.FromArgb(160, 22, 32, 43)), BorderBrush = new SolidColorBrush(Color.FromArgb(90, 255, 255, 255)), BorderThickness = new Thickness(1), FontSize = 15 }; Grid.SetRow(input, 2); rows.Children.Add(input);
+        var input = new TextBox { Text = initial, Foreground = Brushes.White, Background = new SolidColorBrush(Color.FromArgb(210, 43, 43, 43)), BorderBrush = new SolidColorBrush(Color.FromArgb(90, 255, 255, 255)), BorderThickness = new Thickness(1), FontSize = 15 }; Grid.SetRow(input, 2); rows.Children.Add(input);
         var buttons = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 18, 0, 0) }; var cancel = new Button { Content = "取消", Width = 90, Background = new SolidColorBrush(Color.FromRgb(58, 58, 58)), Margin = new Thickness(0, 0, 9, 0) }; cancel.Click += (_, _) => dialog.DialogResult = false; var ok = new Button { Content = "确定", Width = 100 }; ok.Click += (_, _) => { if (!string.IsNullOrWhiteSpace(input.Text)) dialog.DialogResult = true; }; buttons.Children.Add(cancel); buttons.Children.Add(ok); Grid.SetRow(buttons, 3); rows.Children.Add(buttons); root.Child = rows; dialog.Content = root; dialog.Loaded += (_, _) => { input.Focus(); input.SelectAll(); }; return dialog.ShowDialog() == true ? input.Text.Trim() : null;
     }
 
@@ -535,7 +535,7 @@ public partial class MainWindow : Window
         content.Children.Add(new TextBlock { Text = label, FontSize = label.Length > 5 ? 8 : 10.5, FontWeight = FontWeights.SemiBold, HorizontalAlignment = HorizontalAlignment.Center, TextAlignment = TextAlignment.Center, LineHeight = 11 });
         if (used > 0) content.Children.Add(new TextBlock { Text = used.ToString(), FontSize = 10.5, FontWeight = FontWeights.Bold, HorizontalAlignment = HorizontalAlignment.Center, TextAlignment = TextAlignment.Center, LineHeight = 12, Margin = new Thickness(0, 1, 0, 0) });
         var selected = selectedPhysicalKey?.Equals(physicalKey, StringComparison.OrdinalIgnoreCase) == true;
-        var button = new Button { Content = content, ToolTip = label, Margin = new Thickness(3), Padding = new Thickness(3, 2, 3, 2), Width = width, Height = height, Background = new SolidColorBrush(conflict ? Color.FromRgb(190, 64, 74) : used > 0 ? Color.FromRgb(0, 120, 212) : Color.FromRgb(48, 61, 75)), BorderBrush = new SolidColorBrush(selected ? Color.FromRgb(91, 205, 255) : Colors.Transparent), BorderThickness = selected ? new Thickness(3) : new Thickness(0), Tag = physicalKey };
+        var button = new Button { Content = content, ToolTip = label, Margin = new Thickness(3), Padding = new Thickness(3, 2, 3, 2), Width = width, Height = height, Background = new SolidColorBrush(conflict ? Color.FromRgb(190, 64, 74) : used > 0 ? Color.FromRgb(76, 76, 76) : Color.FromRgb(48, 48, 48)), BorderBrush = new SolidColorBrush(selected ? Color.FromRgb(91, 205, 255) : Colors.Transparent), BorderThickness = selected ? new Thickness(3) : new Thickness(0), Tag = physicalKey };
         button.Click += KeyboardKey_Click; return button;
     }
 
@@ -544,9 +544,9 @@ public partial class MainWindow : Window
         MousePanel.Children.Clear(); MousePanel.Width = 190; MousePanel.Height = 224;
         Brush RegionBrush(string key)
         {
-            counts.TryGetValue(key, out var used); return new SolidColorBrush(conflictKeys.Contains(key) ? Color.FromRgb(190, 64, 74) : used > 0 ? Color.FromRgb(0, 120, 212) : Color.FromRgb(43, 57, 70));
+            counts.TryGetValue(key, out var used); return new SolidColorBrush(conflictKeys.Contains(key) ? Color.FromRgb(190, 64, 74) : used > 0 ? Color.FromRgb(76, 76, 76) : Color.FromRgb(44, 44, 44));
         }
-        var shell = new System.Windows.Shapes.Path { Data = Geometry.Parse("M95,5 C137,5 163,35 163,80 L163,143 C163,190 137,216 95,219 C53,216 27,190 27,143 L27,80 C27,35 53,5 95,5 Z"), Fill = new SolidColorBrush(Color.FromRgb(17, 27, 36)), Stroke = new SolidColorBrush(Color.FromRgb(86, 117, 143)), StrokeThickness = 2 }; MousePanel.Children.Add(shell);
+        var shell = new System.Windows.Shapes.Path { Data = Geometry.Parse("M95,5 C137,5 163,35 163,80 L163,143 C163,190 137,216 95,219 C53,216 27,190 27,143 L27,80 C27,35 53,5 95,5 Z"), Fill = new SolidColorBrush(Color.FromRgb(28, 28, 28)), Stroke = new SolidColorBrush(Color.FromRgb(92, 92, 92)), StrokeThickness = 2 }; MousePanel.Children.Add(shell);
         void AddRegion(string key, string geometry, string label, double labelX, double labelY)
         {
             var region = new System.Windows.Shapes.Path { Data = Geometry.Parse(geometry), Fill = RegionBrush(key), Stroke = new SolidColorBrush(Color.FromRgb(90, 118, 141)), StrokeThickness = 1, Cursor = Cursors.Hand, Tag = key };
@@ -556,7 +556,7 @@ public partial class MainWindow : Window
         AddRegion("鼠标 LEFT", "M30,78 C33,38 56,12 90,11 L90,78 Z", "左键", 48, 34);
         AddRegion("鼠标 RIGHT", "M100,11 C134,12 157,38 160,78 L100,78 Z", "右键", 119, 34);
         var divider = new System.Windows.Shapes.Line { X1 = 95, Y1 = 9, X2 = 95, Y2 = 80, Stroke = new SolidColorBrush(Color.FromRgb(9, 17, 24)), StrokeThickness = 3, IsHitTestVisible = false }; MousePanel.Children.Add(divider);
-        var wheelTrack = new Border { Width = 29, Height = 68, CornerRadius = new CornerRadius(14), Background = new SolidColorBrush(Color.FromRgb(11, 18, 25)), BorderBrush = new SolidColorBrush(Color.FromRgb(80, 105, 126)), BorderThickness = new Thickness(1) }; MousePanel.Children.Add(wheelTrack); Canvas.SetLeft(wheelTrack, 80.5); Canvas.SetTop(wheelTrack, 18);
+        var wheelTrack = new Border { Width = 29, Height = 68, CornerRadius = new CornerRadius(14), Background = new SolidColorBrush(Color.FromRgb(22, 22, 22)), BorderBrush = new SolidColorBrush(Color.FromRgb(82, 82, 82)), BorderThickness = new Thickness(1) }; MousePanel.Children.Add(wheelTrack); Canvas.SetLeft(wheelTrack, 80.5); Canvas.SetTop(wheelTrack, 18);
         counts.TryGetValue("鼠标 MIDDLE", out var middleUsed); var wheel = new Border { Width = 17, Height = 39, CornerRadius = new CornerRadius(8), Background = RegionBrush("鼠标 MIDDLE"), Cursor = Cursors.Hand, Tag = "鼠标 MIDDLE", ToolTip = "中键 / 滚轮按下" }; wheel.MouseLeftButtonDown += (_, e) => { e.Handled = true; SelectPhysicalKey("鼠标 MIDDLE"); }; MousePanel.Children.Add(wheel); Canvas.SetLeft(wheel, 86.5); Canvas.SetTop(wheel, 25);
         for (var y = 31; y <= 55; y += 6) { var groove = new System.Windows.Shapes.Line { X1 = 90, X2 = 100, Y1 = y, Y2 = y, Stroke = new SolidColorBrush(Color.FromArgb(120, 220, 235, 248)), StrokeThickness = 1, IsHitTestVisible = false }; MousePanel.Children.Add(groove); }
         var middleLabel = new Border { MinWidth = 42, Height = 18, CornerRadius = new CornerRadius(9), Background = RegionBrush("鼠标 MIDDLE"), IsHitTestVisible = false, Child = new TextBlock { Text = middleUsed > 0 ? $"中键 {middleUsed}" : "中键", Foreground = Brushes.White, FontSize = 9, FontWeight = FontWeights.SemiBold, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center } }; MousePanel.Children.Add(middleLabel); Canvas.SetLeft(middleLabel, 74); Canvas.SetTop(middleLabel, 70);
@@ -621,7 +621,14 @@ public partial class MainWindow : Window
     }
     private string ApplyResourcePacksOnly() { MinecraftConfig.MirrorLibrary(settings.PackLibrary, Path.Combine(instance, "resourcepacks")); MinecraftConfig.PatchOptions(instance, new Dictionary<string, string>(StringComparer.Ordinal) { ["resourcePacks"] = MinecraftConfig.ResourcePackValue(packs) }); return "资源包"; }
     private string ApplyShadersOnly() { MinecraftConfig.MirrorLibrary(settings.ShaderLibrary, Path.Combine(instance, "shaderpacks")); ApplyShaderSelection(); return "光影"; }
-    private string ApplyKeysOnly() { MinecraftConfig.PatchOptions(instance, allKeys.ToDictionary(k => k.OptionKey, k => k.Value, StringComparer.Ordinal)); return "键位"; }
+    private string ApplyKeysOnly()
+    {
+        var changes = allKeys.ToDictionary(k => k.OptionKey, k => k.Value, StringComparer.Ordinal);
+        if (changes.Count == 0 && settings.KeyProfiles.TryGetValue(settings.ActiveKeyProfile, out var profile))
+            foreach (var binding in profile.ModBindings.SelectMany(pair => pair.Value)) changes[binding.Key] = binding.Value;
+        if (changes.Count == 0) throw new InvalidOperationException("当前没有可写入的键位配置。");
+        MinecraftConfig.PatchOptions(instance, changes); return "键位";
+    }
     private void ApplyShaderSelection() { if (string.IsNullOrWhiteSpace(draftSelectedShader)) return; PatchProperty(Path.Combine(instance, "config", "iris.properties"), "shaderPack", draftSelectedShader); PatchProperty(Path.Combine(instance, "optionsof.txt"), "ofShaderPack", draftSelectedShader); }
     private static void PatchProperty(string file, string key, string value) { if (!File.Exists(file)) return; File.Copy(file, file + ".mcprofilestudio.bak", true); var lines = File.ReadAllLines(file).ToList(); var i = lines.FindIndex(x => x.StartsWith(key + "=", StringComparison.Ordinal)); if (i >= 0) lines[i] = key + "=" + value; else lines.Add(key + "=" + value); File.WriteAllLines(file, lines); }
     private void RefreshSummary() { PackCount.Text = packs.Count.ToString(); ModCount.Text = allKeys.Select(k => k.ModId).Distinct().Count().ToString(); var conflicts = allKeys.Where(k => k.CountsAsConflict && !k.Value.EndsWith("unknown")).GroupBy(k => k.Value).Count(g => g.Count() > 1); KeyCount.Text = $"{allKeys.Count} / {conflicts}"; LibrarySummary.Text = $"资源包：{(settings.PackLibrary.Length == 0 ? "未设置" : settings.PackLibrary)}\n光影包：{(settings.ShaderLibrary.Length == 0 ? "未设置" : settings.ShaderLibrary)}"; }

@@ -141,10 +141,11 @@ public static class MinecraftConfig
     public static void PatchOptions(string instance, IReadOnlyDictionary<string, string> changes)
     {
         var file = Path.Combine(instance, "options.txt");
-        if (!File.Exists(file)) throw new FileNotFoundException("实例中没有 options.txt，请至少启动一次游戏。", file);
-        File.Copy(file, file + ".mcprofilestudio.bak", true);
+        Directory.CreateDirectory(instance);
+        var existed = File.Exists(file);
+        if (existed) File.Copy(file, file + ".mcprofilestudio.bak", true);
         var seen = new HashSet<string>(StringComparer.Ordinal);
-        var lines = File.ReadAllLines(file).Select(line => { var parsed = ParseLine(line); if (parsed is { } p && changes.TryGetValue(p.Key, out var value)) { seen.Add(p.Key); return $"{p.Key}:{value}"; } return line; }).ToList();
+        var lines = (existed ? File.ReadAllLines(file) : []).Select(line => { var parsed = ParseLine(line); if (parsed is { } p && changes.TryGetValue(p.Key, out var value)) { seen.Add(p.Key); return $"{p.Key}:{value}"; } return line; }).ToList();
         foreach (var pair in changes.Where(p => !seen.Contains(p.Key))) lines.Add($"{pair.Key}:{pair.Value}");
         File.WriteAllLines(file, lines);
     }
