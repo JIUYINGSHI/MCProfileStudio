@@ -39,6 +39,7 @@ public partial class MainWindow : Window
     private TextBlock? toastIcon;
     private TextBlock? toastTitle;
     private TextBlock? toastMessage;
+    private int activePageIndex;
 
     private static readonly Dictionary<string, string[][]> KeyboardLayouts = CreateKeyboardLayouts();
 
@@ -175,7 +176,8 @@ public partial class MainWindow : Window
     private void Navigate(object sender, RoutedEventArgs e)
     {
         if (!IsLoaded) return; var index = int.Parse((string)((RadioButton)sender).Tag);
-        ApplyInstanceButton.Visibility = index == 0 ? Visibility.Collapsed : Visibility.Visible;
+        activePageIndex = index;
+        ApplyInstanceButton.Visibility = index is >= 1 and <= 3 ? Visibility.Visible : Visibility.Collapsed;
         HomePage.Visibility = index == 0 ? Visibility.Visible : Visibility.Collapsed; PacksPage.Visibility = index == 1 ? Visibility.Visible : Visibility.Collapsed; ShadersPage.Visibility = index == 2 ? Visibility.Visible : Visibility.Collapsed; KeysPage.Visibility = index == 3 ? Visibility.Visible : Visibility.Collapsed; if (modConfigsPage != null) modConfigsPage.Visibility = index == 4 ? Visibility.Visible : Visibility.Collapsed; if (favoriteModsPage != null) favoriteModsPage.Visibility = index == 5 ? Visibility.Visible : Visibility.Collapsed;
         PageTitle.Text = new[] { "概览", "资源包排序", "光影包覆盖", "可视化键位", "Mod 配置", "Mod 收藏与下载" }[index];
         PageSubtitle.Text = new[] { "选择整合包实例，然后统一应用资源与键位。", "拖动调整优先级；不会阻止版本不兼容的资源包。", "固定库存，一键覆盖到任意新整合包。", "从键盘占用定位冲突，再按 Mod 保存专属键位。", "管理不写入 options.txt 的独立快捷键、开关和列表配置。", "从 Modrinth、CurseForge 与 GitHub 收藏 Mod，并为新实例选择兼容版本。" }[index];
@@ -596,9 +598,29 @@ public partial class MainWindow : Window
 
     private void Apply_Click(object sender, RoutedEventArgs e)
     {
-        if (string.IsNullOrWhiteSpace(instance)) { ShowToast("无法覆盖", "尚未选择 Minecraft 实例，请先导入游戏文件夹。", false, 5200); return; }
-        try { MinecraftConfig.MirrorLibrary(settings.PackLibrary, Path.Combine(instance, "resourcepacks")); MinecraftConfig.MirrorLibrary(settings.ShaderLibrary, Path.Combine(instance, "shaderpacks")); var changes = allKeys.ToDictionary(k => k.OptionKey, k => k.Value, StringComparer.Ordinal); changes["resourcePacks"] = MinecraftConfig.ResourcePackValue(packs); MinecraftConfig.PatchOptions(instance, changes); ApplyShaderSelection(); StatusText.Text = $"应用完成：{DateTime.Now:HH:mm:ss}（配置草稿未自动保存）"; ShowToast("覆盖成功", $"已覆盖当前实例的资源包、光影选择和 {allKeys.Count} 个键位；草稿方案未自动保存。", true); } catch (Exception ex) { StatusText.Text = "覆盖实例失败"; ShowToast("覆盖失败", $"未能写入当前实例：{ex.Message}", false, 6500); }
+        if (string.IsNullOrWhiteSpace(instance)) { ShowToast("无法覆盖", "请先选择实例。", false, 4200); return; }
+        try
+        {
+            var applied = activePageIndex switch
+            {
+                1 => ApplyResourcePacksOnly(),
+                2 => ApplyShadersOnly(),
+                3 => ApplyKeysOnly(),
+                _ => ""
+            };
+            if (applied.Length == 0) return;
+            StatusText.Text = $"{applied}已覆盖：{DateTime.Now:HH:mm:ss}（草稿未保存）";
+            ShowToast($"{applied}已覆盖", "已写入当前实例。", true, 2800);
+        }
+        catch (Exception ex)
+        {
+            StatusText.Text = "覆盖失败";
+            ShowToast("覆盖失败", ex.Message, false, 5200);
+        }
     }
+    private string ApplyResourcePacksOnly() { MinecraftConfig.MirrorLibrary(settings.PackLibrary, Path.Combine(instance, "resourcepacks")); MinecraftConfig.PatchOptions(instance, new Dictionary<string, string>(StringComparer.Ordinal) { ["resourcePacks"] = MinecraftConfig.ResourcePackValue(packs) }); return "资源包"; }
+    private string ApplyShadersOnly() { MinecraftConfig.MirrorLibrary(settings.ShaderLibrary, Path.Combine(instance, "shaderpacks")); ApplyShaderSelection(); return "光影"; }
+    private string ApplyKeysOnly() { MinecraftConfig.PatchOptions(instance, allKeys.ToDictionary(k => k.OptionKey, k => k.Value, StringComparer.Ordinal)); return "键位"; }
     private void ApplyShaderSelection() { if (string.IsNullOrWhiteSpace(draftSelectedShader)) return; PatchProperty(Path.Combine(instance, "config", "iris.properties"), "shaderPack", draftSelectedShader); PatchProperty(Path.Combine(instance, "optionsof.txt"), "ofShaderPack", draftSelectedShader); }
     private static void PatchProperty(string file, string key, string value) { if (!File.Exists(file)) return; File.Copy(file, file + ".mcprofilestudio.bak", true); var lines = File.ReadAllLines(file).ToList(); var i = lines.FindIndex(x => x.StartsWith(key + "=", StringComparison.Ordinal)); if (i >= 0) lines[i] = key + "=" + value; else lines.Add(key + "=" + value); File.WriteAllLines(file, lines); }
     private void RefreshSummary() { PackCount.Text = packs.Count.ToString(); ModCount.Text = allKeys.Select(k => k.ModId).Distinct().Count().ToString(); var conflicts = allKeys.Where(k => k.CountsAsConflict && !k.Value.EndsWith("unknown")).GroupBy(k => k.Value).Count(g => g.Count() > 1); KeyCount.Text = $"{allKeys.Count} / {conflicts}"; LibrarySummary.Text = $"资源包：{(settings.PackLibrary.Length == 0 ? "未设置" : settings.PackLibrary)}\n光影包：{(settings.ShaderLibrary.Length == 0 ? "未设置" : settings.ShaderLibrary)}"; }

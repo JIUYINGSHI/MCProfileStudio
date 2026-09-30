@@ -1035,12 +1035,12 @@ public partial class MainWindow
                 else { var profileFile = Path.Combine(source, Path.GetFileName(draft.SourcePath)); if (!File.Exists(profileFile)) continue; BackupModConfig(draft.SourcePath); Directory.CreateDirectory(Path.GetDirectoryName(draft.SourcePath)!); MakeFileWritable(draft.SourcePath); File.Copy(profileFile, draft.SourcePath, true); }
                 applied++;
             }
-            StatusText.Text = $"已覆盖 {applied} 个已安装 Mod 的独立配置"; ShowToast("Mod 配置覆盖成功", $"已覆盖 {applied} 个已安装 Mod 的独立配置，并为原文件创建 .mcprofilestudio.bak 备份。", true);
+            StatusText.Text = $"已覆盖 {applied} 个已安装 Mod 的独立配置"; ShowToast("Mod 配置已覆盖", $"共 {applied} 个 Mod。", true, 2800);
         }
         catch (Exception ex)
         {
             StatusText.Text = "应用 Mod 配置失败";
-            ShowToast("Mod 配置覆盖失败", $"未能完成覆盖：{ex.Message}；已写入文件仍保留 .mcprofilestudio.bak 备份。", false, 6500);
+            ShowToast("Mod 配置覆盖失败", ex.Message, false, 5200);
         }
     }
 
