@@ -21,6 +21,8 @@ public partial class MainWindow : Window
     private readonly ObservableCollection<PackItem> packs = [];
     private readonly ObservableCollection<PackItem> shaders = [];
     private readonly ObservableCollection<KeyBindingItem> allKeys = [];
+    private readonly ObservableCollection<PackItem> disabledPackView = [];
+    private readonly ObservableCollection<PackItem> enabledPackView = [];
     private string instance = "";
     private Dictionary<string, ModInfo> mods = new(StringComparer.OrdinalIgnoreCase);
     private Point dragStart; private bool capturing;
@@ -438,7 +440,24 @@ public partial class MainWindow : Window
         list.MouseDoubleClick += (_, _) => { if (list.SelectedItem is PackItem item) { if (!enabled) { packs.Remove(item); item.Enabled = true; packs.Insert(0, item); } else item.Enabled = false; RefreshPackColumns(); enabledPackList?.ScrollIntoView(item); StatusText.Text = "资源包配置已修改（尚未保存）"; } };
         var border = new Border { Background = new SolidColorBrush(Color.FromArgb(190, 27, 27, 27)), BorderBrush = new SolidColorBrush(Color.FromArgb(55, 255, 255, 255)), BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(18), Padding = new Thickness(14), Margin = column == 0 ? new Thickness(0, 0, 7, 14) : new Thickness(7, 0, 0, 14), Child = panel }; Grid.SetColumn(border, column); Grid.SetRow(border, 1); PacksPage.Children.Add(border); return list;
     }
-    private void RefreshPackColumns() { if (disabledPackList == null || enabledPackList == null) return; disabledPackList.ItemsSource = packs.Where(p => !p.Enabled).ToList(); enabledPackList.ItemsSource = packs.Where(p => p.Enabled).ToList(); }
+    private void RefreshPackColumns()
+    {
+        if (disabledPackList == null || enabledPackList == null) return;
+        SyncPackView(disabledPackView, packs.Where(p => !p.Enabled).ToList()); SyncPackView(enabledPackView, packs.Where(p => p.Enabled).ToList());
+        if (disabledPackList.ItemsSource != disabledPackView) disabledPackList.ItemsSource = disabledPackView;
+        if (enabledPackList.ItemsSource != enabledPackView) enabledPackList.ItemsSource = enabledPackView;
+    }
+
+    private static void SyncPackView(ObservableCollection<PackItem> view, IReadOnlyList<PackItem> desired)
+    {
+        for (var i = 0; i < desired.Count; i++)
+        {
+            if (i < view.Count && ReferenceEquals(view[i], desired[i])) continue;
+            var existing = view.IndexOf(desired[i]);
+            if (existing >= 0) view.Move(existing, i); else view.Insert(i, desired[i]);
+        }
+        while (view.Count > desired.Count) view.RemoveAt(view.Count - 1);
+    }
 
     private void BeginPackDragPreview(ListBox source, PackItem item)
     {
@@ -489,9 +508,15 @@ public partial class MainWindow : Window
     private void PreviewPackPosition(ListBox destination, Point position)
     {
         if (draggedPack == null) return;
-        var hit = destination.InputHitTest(position) as DependencyObject;
-        var container = FindParent<ListBoxItem>(hit); var target = container?.DataContext as PackItem;
-        var after = container != null && position.Y > container.TranslatePoint(new Point(0, container.ActualHeight / 2), destination).Y;
+        PackItem? target = null; var after = false;
+        foreach (var item in destination.Items.OfType<PackItem>())
+        {
+            if (destination.ItemContainerGenerator.ContainerFromItem(item) is not ListBoxItem candidate) continue;
+            var top = candidate.TranslatePoint(new Point(), destination).Y;
+            if (position.Y >= top + candidate.ActualHeight) continue;
+            target = item; after = position.Y > top + candidate.ActualHeight / 2; break;
+        }
+        if (ReferenceEquals(target, draggedPack)) return;
         if (lastPreviewList == destination && lastPreviewTarget == target && lastPreviewAfter == after) return;
         lastPreviewList = destination; lastPreviewTarget = target; lastPreviewAfter = after;
         var previous = CapturePackPositions(); draggedPack.Enabled = destination == enabledPackList; packs.Remove(draggedPack);
