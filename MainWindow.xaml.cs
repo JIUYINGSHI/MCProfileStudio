@@ -58,9 +58,10 @@ public partial class MainWindow : Window
 
     private static FrameworkElement CreateMinecraftNavContent(string tag, string label)
     {
+        var icons = new Dictionary<string, string> { ["0"] = "⌂", ["1"] = "▤", ["2"] = "◉", ["3"] = "⌨", ["4"] = "⚙", ["5"] = "☆" };
         var panel = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
-        panel.Children.Add(CreateMinecraftPixelIcon(tag));
-        panel.Children.Add(new TextBlock { Text = label, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(12, 0, 0, 0), FontWeight = FontWeights.SemiBold });
+        panel.Children.Add(new TextBlock { Text = icons.GetValueOrDefault(tag, "•"), FontFamily = new FontFamily("Segoe UI Symbol"), FontSize = 16, Width = 22, Foreground = new SolidColorBrush(Color.FromRgb(198, 213, 227)), TextAlignment = TextAlignment.Center, VerticalAlignment = VerticalAlignment.Center });
+        panel.Children.Add(new TextBlock { Text = label, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(8, 0, 0, 0), FontWeight = FontWeights.SemiBold });
         return panel;
     }
 

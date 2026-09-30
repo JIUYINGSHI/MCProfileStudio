@@ -203,7 +203,7 @@ public partial class MainWindow
 
     private Button MakeActionButton(string text, RoutedEventHandler handler, Thickness margin, bool primary = true)
     {
-        var button = new Button { Content = text, Margin = margin, Background = new SolidColorBrush(primary ? Color.FromArgb(210, 0, 120, 212) : Color.FromArgb(18, 255, 255, 255)) };
+        var button = new Button { Content = text, Margin = margin, Background = new SolidColorBrush(primary ? Color.FromArgb(28, 0, 168, 255) : Color.FromArgb(18, 255, 255, 255)) };
         button.Click += handler; return button;
     }
 
@@ -491,7 +491,7 @@ public partial class MainWindow
             var wrapped = wrapper.First();
             if (wrapped.Key is "keys" or "value") { editOwner = wrapper; editKey = wrapped.Key; editableValue = wrapped.Value; }
         }
-        var border = new Border { Margin = new Thickness(0, 0, 0, 8), Padding = new Thickness(12, 9, 12, 9), CornerRadius = new CornerRadius(8), Background = new SolidColorBrush(Color.FromArgb(175, 47, 47, 47)), BorderBrush = new SolidColorBrush(Color.FromRgb(116, 116, 116)), BorderThickness = new Thickness(1) };
+        var border = new Border { Margin = new Thickness(0, 0, 0, 8), Padding = new Thickness(12, 9, 12, 9), CornerRadius = new CornerRadius(10), Background = new SolidColorBrush(Color.FromArgb(70, 0, 0, 0)), BorderBrush = new SolidColorBrush(Color.FromArgb(42, 255, 255, 255)), BorderThickness = new Thickness(1) };
         var grid = new Grid(); grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1.05, GridUnitType.Star) }); grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1.4, GridUnitType.Star) });
         var translated = TranslateConfigOption(draft, category, key);
         var label = new TextBlock { Text = translated.Label, ToolTip = translated.Tooltip, Foreground = Brushes.White, VerticalAlignment = VerticalAlignment.Center, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 12, 0) }; grid.Children.Add(label);
@@ -554,7 +554,7 @@ public partial class MainWindow
     private FrameworkElement BuildToggleHotkeyEditor(JsonObject toggleOwner, string toggleKey, bool enabled, JsonObject hotkeyOwner, string hotkeyKey)
     {
         var grid = new Grid(); grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(116) }); grid.ColumnDefinitions.Add(new ColumnDefinition());
-        var toggle = new Button { Content = enabled ? "true" : "false", Foreground = new SolidColorBrush(enabled ? Color.FromRgb(88, 220, 120) : Color.FromRgb(255, 105, 115)), Background = new SolidColorBrush(Color.FromRgb(126, 126, 126)), Margin = new Thickness(0, 0, 8, 0) };
+        var toggle = new Button { Content = enabled ? "true" : "false", Foreground = new SolidColorBrush(enabled ? Color.FromRgb(88, 220, 120) : Color.FromRgb(255, 105, 115)), Background = new SolidColorBrush(Color.FromArgb(24, 255, 255, 255)), Margin = new Thickness(0, 0, 8, 0) };
         toggle.Click += (_, _) => { var next = !(toggleOwner[toggleKey]?.GetValue<bool>() ?? false); toggleOwner[toggleKey] = next; toggle.Content = next ? "true" : "false"; toggle.Foreground = new SolidColorBrush(next ? Color.FromRgb(88, 220, 120) : Color.FromRgb(255, 105, 115)); MarkModConfigDraftChanged(); };
         grid.Children.Add(toggle);
         var hotkey = BuildHotkeyEditor(hotkeyOwner, hotkeyKey); Grid.SetColumn(hotkey, 1); grid.Children.Add(hotkey); return grid;
@@ -563,7 +563,7 @@ public partial class MainWindow
     private FrameworkElement BuildHotkeyEditor(JsonObject owner, string key)
     {
         var grid = new Grid(); grid.ColumnDefinitions.Add(new ColumnDefinition()); grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(44) });
-        var button = new Button { Content = HotkeyDisplay(owner[key]?.GetValue<string>()), Background = new SolidColorBrush(Color.FromRgb(126, 126, 126)), Foreground = Brushes.White, HorizontalContentAlignment = HorizontalAlignment.Center };
+        var button = new Button { Content = HotkeyDisplay(owner[key]?.GetValue<string>()), Background = new SolidColorBrush(Color.FromArgb(24, 255, 255, 255)), Foreground = Brushes.White, HorizontalContentAlignment = HorizontalAlignment.Center };
         var capturing = false;
         button.Click += (_, _) => { capturing = true; button.Content = "请按下组合键…"; button.Focus(); Keyboard.Focus(button); };
         button.PreviewKeyDown += (_, e) =>
@@ -596,7 +596,7 @@ public partial class MainWindow
 
     private FrameworkElement BuildDiscoveredHotkeyRow(ModConfigDraft draft, string key)
     {
-        var border = new Border { Margin = new Thickness(0, 0, 0, 8), Padding = new Thickness(12, 9, 12, 9), CornerRadius = new CornerRadius(8), Background = new SolidColorBrush(Color.FromArgb(175, 47, 47, 47)), BorderBrush = new SolidColorBrush(Color.FromRgb(116, 116, 116)), BorderThickness = new Thickness(1) };
+        var border = new Border { Margin = new Thickness(0, 0, 0, 8), Padding = new Thickness(12, 9, 12, 9), CornerRadius = new CornerRadius(10), Background = new SolidColorBrush(Color.FromArgb(70, 0, 0, 0)), BorderBrush = new SolidColorBrush(Color.FromArgb(42, 255, 255, 255)), BorderThickness = new Thickness(1) };
         var grid = new Grid(); grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1.05, GridUnitType.Star) }); grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1.4, GridUnitType.Star) });
         var translated = TranslateConfigOption(draft, "Hotkeys", key); grid.Children.Add(new TextBlock { Text = translated.Label, ToolTip = translated.Tooltip, Foreground = Brushes.White, VerticalAlignment = VerticalAlignment.Center, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 12, 0) });
         var editor = BuildHotkeyEditor(draft.HotkeyOverrides, key); Grid.SetColumn(editor, 1); grid.Children.Add(editor); border.Child = grid; return border;
@@ -604,7 +604,7 @@ public partial class MainWindow
 
     private FrameworkElement BuildDiscoveredBooleanRow(ModConfigDraft draft, DiscoveredBooleanOption option)
     {
-        var border = new Border { Margin = new Thickness(0, 0, 0, 8), Padding = new Thickness(12, 9, 12, 9), CornerRadius = new CornerRadius(8), Background = new SolidColorBrush(Color.FromArgb(175, 47, 47, 47)), BorderBrush = new SolidColorBrush(Color.FromRgb(116, 116, 116)), BorderThickness = new Thickness(1) };
+        var border = new Border { Margin = new Thickness(0, 0, 0, 8), Padding = new Thickness(12, 9, 12, 9), CornerRadius = new CornerRadius(10), Background = new SolidColorBrush(Color.FromArgb(70, 0, 0, 0)), BorderBrush = new SolidColorBrush(Color.FromArgb(42, 255, 255, 255)), BorderThickness = new Thickness(1) };
         var grid = new Grid(); grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1.05, GridUnitType.Star) }); grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1.4, GridUnitType.Star) });
         var translated = TranslateConfigOption(draft, option.Category, option.Key);
         grid.Children.Add(new TextBlock { Text = translated.Label, ToolTip = translated.Tooltip, Foreground = Brushes.White, VerticalAlignment = VerticalAlignment.Center, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 12, 0) });

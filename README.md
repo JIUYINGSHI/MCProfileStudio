@@ -1,10 +1,12 @@
 # MC Profile Studio
 
-当前开发版本：**v6.5.1**（公开稳定版为 v6.0.0）
+当前开发版本：**v6.6.0**（公开稳定版为 v6.0.0）
 
 面向 Minecraft Java 多 Mod 整合包的资源包、光影包和键位配置工具，采用 WPF 与 WinUI 风格界面。
 
 ## 主要功能
+
+- 全局界面按 RIOSHI Server / Terraria Manager 的设计语言重构：统一 52px 标题栏、210px 导航、22px 玻璃主容器、14px 内容卡片、克制的状态强调与 NavigationView 式选中指示。
 
 - 使用左右双栏管理资源包，支持拖放排序、双击切换、自定义配置和 Minecraft 自定义字体横幅。
 - 从 `pack.mcmeta` 与字体 provider 还原资源包彩色说明及位图字符。
