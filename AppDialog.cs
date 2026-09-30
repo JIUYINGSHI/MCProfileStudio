@@ -43,7 +43,7 @@ internal static class AppDialog
         var actions = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 22, 0, 0) };
         void AddButton(string label, MessageBoxResult value, bool primary = false)
         {
-            var button = new Button { Content = label, MinWidth = 94, Margin = new Thickness(8, 0, 0, 0), Background = primary ? new SolidColorBrush(Color.FromRgb(17, 126, 207)) : new SolidColorBrush(Color.FromRgb(56, 71, 86)) };
+            var button = new Button { Content = label, MinWidth = 94, Margin = new Thickness(8, 0, 0, 0), Background = primary ? new SolidColorBrush(Color.FromRgb(17, 126, 207)) : new SolidColorBrush(Color.FromRgb(58, 58, 58)) };
             button.Click += (_, _) => { result = value; dialog.DialogResult = true; };
             actions.Children.Add(button);
         }

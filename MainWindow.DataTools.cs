@@ -36,7 +36,7 @@ public partial class MainWindow
         cloudBackupSummary = new TextBlock { Foreground = new SolidColorBrush(Color.FromRgb(49, 183, 255)), Margin = new Thickness(0, 6, 20, 0), TextWrapping = TextWrapping.Wrap };
         copy.Children.Add(cloudBackupSummary); root.Children.Add(copy);
         var actions = new WrapPanel { VerticalAlignment = VerticalAlignment.Center };
-        var logs = new Button { Content = "导出软件日志", Margin = new Thickness(0, 0, 8, 0), Background = new SolidColorBrush(Color.FromRgb(56, 71, 86)) }; logs.Click += ExportLogs_Click;
+        var logs = new Button { Content = "导出软件日志", Margin = new Thickness(0, 0, 8, 0), Background = new SolidColorBrush(Color.FromRgb(58, 58, 58)) }; logs.Click += ExportLogs_Click;
         var cloud = new Button { Content = "WebDAV 云备份" }; cloud.Click += OpenWebDav_Click;
         actions.Children.Add(logs); actions.Children.Add(cloud); Grid.SetColumn(actions, 1); root.Children.Add(actions);
         host.Children.Add(root); RefreshCloudBackupSummary();
@@ -72,10 +72,10 @@ public partial class MainWindow
         var remotePath = AddText("远程目录", string.IsNullOrWhiteSpace(settings.WebDavRemotePath) ? "MCProfileStudio" : settings.WebDavRemotePath, "相对于服务器地址的目录，会自动创建");
         var status = new TextBlock { Text = "使用 HTTPS 可避免 Basic 登录凭据在传输过程中暴露。", Foreground = new SolidColorBrush(Color.FromRgb(49, 183, 255)), TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 14, 0, 0) }; form.Children.Add(status); root.Children.Add(form);
         var actions = new WrapPanel { HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 18, 0, 0) };
-        var test = new Button { Content = "测试连接", Background = new SolidColorBrush(Color.FromRgb(56, 71, 86)), Margin = new Thickness(0, 0, 8, 0) };
+        var test = new Button { Content = "测试连接", Background = new SolidColorBrush(Color.FromRgb(58, 58, 58)), Margin = new Thickness(0, 0, 8, 0) };
         var upload = new Button { Content = "上传备份", Margin = new Thickness(0, 0, 8, 0) };
         var restore = new Button { Content = "恢复备份", Background = new SolidColorBrush(Color.FromRgb(112, 48, 56)), Margin = new Thickness(0, 0, 8, 0) };
-        var save = new Button { Content = "保存设置", Background = new SolidColorBrush(Color.FromRgb(56, 71, 86)) };
+        var save = new Button { Content = "保存设置", Background = new SolidColorBrush(Color.FromRgb(58, 58, 58)) };
         actions.Children.Add(test); actions.Children.Add(upload); actions.Children.Add(restore); actions.Children.Add(save); Grid.SetRow(actions, 1); root.Children.Add(actions);
         WebDavOptions Current() => new(url.Text.Trim(), username.Text.Trim(), password.Password, remotePath.Text.Trim());
         void SaveLocal()

@@ -7,7 +7,7 @@
   <Border Background="#6A172432" CornerRadius="8" ClipToBounds="True">
     <Grid Margin="8,7">
       <Grid.ColumnDefinitions><ColumnDefinition Width="60"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
-      <Border Width="60" Height="60" CornerRadius="4" ClipToBounds="True" Background="#35485C" VerticalAlignment="Stretch">
+      <Border Width="60" Height="60" CornerRadius="4" ClipToBounds="True" Background="#353A3A3A" VerticalAlignment="Stretch">
         <Image Source="{Binding PreviewImage}" Stretch="UniformToFill">
           <Image.ToolTip><StackPanel><TextBlock Text="{Binding Name}" FontWeight="SemiBold"/><Image Source="{Binding PreviewImage}" Width="160" Height="160" Stretch="Uniform" Margin="0,8,0,0"/></StackPanel></Image.ToolTip>
         </Image>
