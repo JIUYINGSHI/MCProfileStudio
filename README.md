@@ -1,6 +1,6 @@
 # MC Profile Studio
 
-当前版本：**v7.0.0**
+当前版本：**v7.1.0**
 
 面向 Minecraft Java 多 Mod 整合包的资源包、光影包和键位配置工具，采用 WPF 与 WinUI 风格界面。
 
@@ -68,8 +68,10 @@ dotnet run --project .\McProfileStudio.csproj
 生成 Windows x64 自包含版本：
 
 ```powershell
-dotnet publish .\McProfileStudio.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=false -o .\release
+dotnet publish .\McProfileStudio.csproj -c Release -r win-x64 -o .\release
 ```
+
+发布结果为单个 `McProfileStudio.exe`。程序自带 .NET 运行时，无需安装、无需管理员权限，复制到任意目录即可启动。用户配置、日志与在线缓存统一保存在 `%APPDATA%\McProfileStudio`，不会在 EXE 所在目录产生配置文件。
 
 应用配置前请完全退出 Minecraft，避免游戏退出时覆盖已写入的设置。
 

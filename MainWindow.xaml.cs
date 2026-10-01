@@ -870,14 +870,14 @@ public partial class MainWindow : Window
         if (functionRow)
         {
             AddSequence(keys, 0, 0, "ESC F1 F2 F3 F4 F5 F6 F7 F8 F9 F10 F11 F12 DEL");
-            keys.Add(new("INS", 15, 0)); keys.Add(new("PGUP", 16, 1)); keys.Add(new("PGDN", 16, 2)); keys.Add(new("HOME", 16, 3)); keys.Add(new("END", 16, 4));
-            keys.Add(new("UP", 15, 4)); keys.Add(new("LEFT", 14, 5)); keys.Add(new("DOWN", 15, 5)); keys.Add(new("RIGHT", 16, 5));
+            keys.Add(new("INS", 18.25, 0)); keys.Add(new("PGUP", 18.25, 1)); keys.Add(new("PGDN", 18.25, 2)); keys.Add(new("HOME", 18.25, 3)); keys.Add(new("END", 18.25, 4));
+            keys.Add(new("UP", 16.25, 4)); keys.Add(new("LEFT", 15.25, 5)); keys.Add(new("DOWN", 16.25, 5)); keys.Add(new("RIGHT", 17.25, 5));
         }
         else if (arrows)
         {
             keys.Add(new("UP", 16.25, y + 3)); keys.Add(new("LEFT", 15.25, y + 4)); keys.Add(new("DOWN", 16.25, y + 4)); keys.Add(new("RIGHT", 17.25, y + 4));
         }
-        return new KeyboardLayoutSpec(functionRow ? 17.25 : arrows ? 18.25 : 15, functionRow ? 6 : 5, keys);
+        return new KeyboardLayoutSpec(functionRow ? 19.25 : arrows ? 18.25 : 15, functionRow ? 6 : 5, keys);
     }
 
     private static KeyboardLayoutSpec FullKeyboard(bool numpad, bool extra)
@@ -898,6 +898,7 @@ public partial class MainWindow : Window
     {
         var keys = new List<KeyboardKeySpec>(); AddAnsiBlock(keys, 1);
         AddSequence(keys, 0, 0, "ESC F1 F2 F3 F4 F5 F6 F7 F8 F9 F10 F11 F12 DEL HOME END");
+        AddSequence(keys, 19, 0, "PRTSC SCRLK PAUSE INS");
         keys.Add(new("UP", 16.5, 4)); keys.Add(new("LEFT", 15.5, 5)); keys.Add(new("DOWN", 16.5, 5)); keys.Add(new("RIGHT", 17.5, 5));
         AddNumpad(keys, 19, 1);
         return new KeyboardLayoutSpec(23, 6, keys);
