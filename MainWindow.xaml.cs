@@ -58,6 +58,7 @@ public partial class MainWindow : Window
     private TextBlock? toastTitle;
     private TextBlock? toastMessage;
     private int activePageIndex;
+    private bool deferredUiInitialized;
 
     private sealed record KeyboardKeySpec(string Key, double X, double Y, double Width = 1, double Height = 1);
     private sealed record KeyboardLayoutSpec(double Width, double Height, IReadOnlyList<KeyboardKeySpec> Keys);
@@ -66,9 +67,23 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         packMouseHookProc = PackMouseHookCallback;
-        EnsurePackProfiles(); EnsureKeyProfiles(); EnsureFavoriteModProfiles(); draftSelectedShader = settings.SelectedShader; InitializeComponent(); InitializeToastLayer(); packDragScrollTimer.Tick += PackDragScrollTimer_Tick; ApplyMinecraftNavIcons(); PackList.ItemsSource = packs; ShaderList.ItemsSource = shaders; BuildPackManager(); BuildDraftControls(); BuildModConfigPage(); BuildFavoriteModsPage(); BuildDataToolsCard(); EnableHomeScrolling();
+        EnsurePackProfiles(); EnsureKeyProfiles(); EnsureFavoriteModProfiles(); draftSelectedShader = settings.SelectedShader; InitializeComponent(); InitializeToastLayer(); packDragScrollTimer.Tick += PackDragScrollTimer_Tick; ApplyMinecraftNavIcons(); PackList.ItemsSource = packs; ShaderList.ItemsSource = shaders; BuildPackManager(); BuildDraftControls(); BuildDataToolsCard(); EnableHomeScrolling();
         LayoutCombo.ItemsSource = KeyboardLayouts.Keys; LayoutCombo.SelectedItem = KeyboardLayouts.ContainsKey(settings.KeyboardLayout) ? settings.KeyboardLayout : "108 键全尺寸";
-        SourceInitialized += (_, _) => EnableMica(); Loaded += (_, _) => { ReloadLibraries(); RefreshSummary(); FitKeyboard(); }; SizeChanged += (_, _) => FitKeyboard();
+        SourceInitialized += (_, _) => EnableMica(); Loaded += (_, _) => { RefreshSummary(); FitKeyboard(); }; ContentRendered += InitializeDeferredUi; SizeChanged += (_, _) => FitKeyboard();
+    }
+
+    private async void InitializeDeferredUi(object? sender, EventArgs e)
+    {
+        if (deferredUiInitialized) return;
+        deferredUiInitialized = true;
+        ContentRendered -= InitializeDeferredUi;
+        await Dispatcher.Yield(DispatcherPriority.Background);
+        BuildModConfigPage();
+        await Dispatcher.Yield(DispatcherPriority.Background);
+        BuildFavoriteModsPage();
+        await Dispatcher.Yield(DispatcherPriority.Background);
+        await ReloadLibrariesAsync();
+        RefreshSummary(); FitKeyboard();
     }
 
     private void ApplyMinecraftNavIcons()
@@ -320,9 +335,22 @@ public partial class MainWindow : Window
     private void SaveAndReload() { SettingsStore.Save(settings); ReloadLibraries(); RefreshSummary(); }
     private void ReloadLibraries()
     {
-        var profile = settings.PackProfiles[settings.ActivePackProfile]; LoadPacks(settings.PackLibrary, packs, false); var order = profile.PackOrder.Select((n, i) => (n, i)).ToDictionary(x => x.n, x => x.i, StringComparer.OrdinalIgnoreCase); var sorted = packs.OrderBy(p => order.TryGetValue(p.Name, out var i) ? i : int.MaxValue).ThenBy(p => p.Name).ToList(); packs.Clear(); foreach (var p in sorted) { p.Enabled = profile.EnabledPacks.Contains(p.Name, StringComparer.OrdinalIgnoreCase); packs.Add(p); }
-        LoadPacks(settings.ShaderLibrary, shaders, true); ShaderList.SelectedItem = shaders.FirstOrDefault(s => s.Name.Equals(draftSelectedShader, StringComparison.OrdinalIgnoreCase)); BeginOnlineShaderPreviewRefresh(); PackPathText.Text = string.IsNullOrWhiteSpace(settings.PackLibrary) ? "尚未设置" : settings.PackLibrary;
-        RefreshPackColumns();
+        ApplyLibrarySnapshot(ScanPacks(settings.PackLibrary, false), ScanPacks(settings.ShaderLibrary, true));
+    }
+
+    private async Task ReloadLibrariesAsync()
+    {
+        var packLibrary = settings.PackLibrary; var shaderLibrary = settings.ShaderLibrary;
+        StatusText.Text = "正在后台读取资源包与光影包…";
+        var snapshot = await Task.Run(() => (Packs: ScanPacks(packLibrary, false), Shaders: ScanPacks(shaderLibrary, true)));
+        ApplyLibrarySnapshot(snapshot.Packs, snapshot.Shaders);
+        StatusText.Text = "就绪";
+    }
+
+    private void ApplyLibrarySnapshot(List<PackItem> scannedPacks, List<PackItem> scannedShaders)
+    {
+        var profile = settings.PackProfiles[settings.ActivePackProfile]; var order = profile.PackOrder.Select((n, i) => (n, i)).ToDictionary(x => x.n, x => x.i, StringComparer.OrdinalIgnoreCase); var sorted = scannedPacks.OrderBy(p => order.TryGetValue(p.Name, out var i) ? i : int.MaxValue).ThenBy(p => p.Name).ToList(); packs.Clear(); foreach (var p in sorted) { p.Enabled = profile.EnabledPacks.Contains(p.Name, StringComparer.OrdinalIgnoreCase); packs.Add(p); }
+        shaders.Clear(); foreach (var shader in scannedShaders) shaders.Add(shader); ShaderList.SelectedItem = shaders.FirstOrDefault(s => s.Name.Equals(draftSelectedShader, StringComparison.OrdinalIgnoreCase)); BeginOnlineShaderPreviewRefresh(); PackPathText.Text = string.IsNullOrWhiteSpace(settings.PackLibrary) ? "尚未设置" : settings.PackLibrary; RefreshPackColumns();
     }
 
     private async void BeginOnlineShaderPreviewRefresh()
@@ -350,9 +378,15 @@ public partial class MainWindow : Window
     }
     private void LoadPacks(string folder, ObservableCollection<PackItem> target, bool shader)
     {
-        target.Clear(); if (!Directory.Exists(folder)) return;
+        target.Clear(); foreach (var item in ScanPacks(folder, shader)) target.Add(item);
+    }
+
+    private List<PackItem> ScanPacks(string folder, bool shader)
+    {
+        var result = new List<PackItem>(); if (!Directory.Exists(folder)) return result;
         foreach (var path in Directory.EnumerateFileSystemEntries(folder).Where(p => Directory.Exists(p) || Path.GetExtension(p).Equals(".zip", StringComparison.OrdinalIgnoreCase)))
-        { var name = Path.GetFileName(path); var preview = shader && settings.ShaderPreviews.TryGetValue(name, out var saved) ? saved : shader ? FindSidecarPreview(path) : MinecraftConfig.ExtractPackPreview(path); var banner = shader ? "" : PackBannerGenerator.GetOrCreate(path); target.Add(new() { Name = name, FullPath = path, PreviewPath = preview, PreviewImage = shader ? LoadThumbnail(preview, 360) : LoadCroppedPackIcon(preview, 128), BannerImage = LoadThumbnail(banner, 720), IsFontBanner = !string.IsNullOrWhiteSpace(banner), Description = shader ? "光影效果预览" : MinecraftConfig.ReadPackDescription(path) }); }
+        { var name = Path.GetFileName(path); var preview = shader && settings.ShaderPreviews.TryGetValue(name, out var saved) ? saved : shader ? FindSidecarPreview(path) : MinecraftConfig.ExtractPackPreview(path); var banner = shader ? "" : PackBannerGenerator.GetOrCreate(path); result.Add(new() { Name = name, FullPath = path, PreviewPath = preview, PreviewImage = shader ? LoadThumbnail(preview, 360) : LoadCroppedPackIcon(preview, 128), BannerImage = LoadThumbnail(banner, 720), IsFontBanner = !string.IsNullOrWhiteSpace(banner), Description = shader ? "光影效果预览" : MinecraftConfig.ReadPackDescription(path) }); }
+        return result;
     }
     private static string FindSidecarPreview(string shaderPath) { var dir = Path.GetDirectoryName(shaderPath) ?? ""; var stem = Path.GetFileNameWithoutExtension(shaderPath); foreach (var ext in new[] { ".png", ".jpg", ".jpeg", ".webp" }) { var image = Path.Combine(dir, stem + ext); if (File.Exists(image)) return image; } return ""; }
     private void ShaderList_SelectionChanged(object sender, SelectionChangedEventArgs e)

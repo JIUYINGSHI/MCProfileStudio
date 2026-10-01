@@ -1,6 +1,6 @@
 # MC Profile Studio
 
-当前版本：**v7.1.0**
+当前版本：**v7.2.0**
 
 面向 Minecraft Java 多 Mod 整合包的资源包、光影包和键位配置工具，采用 WPF 与 WinUI 风格界面。
 
