@@ -59,7 +59,9 @@ public partial class MainWindow : Window
     private TextBlock? toastMessage;
     private int activePageIndex;
 
-    private static readonly Dictionary<string, string[][]> KeyboardLayouts = CreateKeyboardLayouts();
+    private sealed record KeyboardKeySpec(string Key, double X, double Y, double Width = 1, double Height = 1);
+    private sealed record KeyboardLayoutSpec(double Width, double Height, IReadOnlyList<KeyboardKeySpec> Keys);
+    private static readonly Dictionary<string, KeyboardLayoutSpec> KeyboardLayouts = CreateKeyboardLayouts();
 
     public MainWindow()
     {
@@ -729,17 +731,17 @@ public partial class MainWindow : Window
     private void BuildKeyboard()
     {
         KeyboardPanel.Children.Clear(); var active = allKeys.Where(k => !k.Value.Contains("unknown", StringComparison.OrdinalIgnoreCase)).ToList(); var counts = active.GroupBy(k => GetPhysicalKey(k.Value)).ToDictionary(g => g.Key, g => g.Count(), StringComparer.OrdinalIgnoreCase); var conflictKeys = active.Where(k => k.CountsAsConflict).GroupBy(k => k.Value, StringComparer.OrdinalIgnoreCase).Where(g => g.Count() > 1).Select(g => GetPhysicalKey(g.First().Value)).ToHashSet(StringComparer.OrdinalIgnoreCase);
-        var selectedLayout = LayoutCombo.SelectedItem as string ?? "108 键全尺寸"; if (!KeyboardLayouts.TryGetValue(selectedLayout, out var rows)) rows = KeyboardLayouts["108 键全尺寸"];
-        foreach (var row in rows)
+        var selectedLayout = LayoutCombo.SelectedItem as string ?? "108 键全尺寸"; if (!KeyboardLayouts.TryGetValue(selectedLayout, out var layout)) layout = KeyboardLayouts["108 键全尺寸"];
+        const double pitchX = 54, pitchY = 52;
+        var canvas = new Canvas { Width = layout.Width * pitchX, Height = layout.Height * pitchY, ClipToBounds = false };
+        foreach (var key in layout.Keys)
         {
-            var panel = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Center };
-            foreach (var key in row)
-            {
-                counts.TryGetValue(key, out var used); var width = key switch { "SPACE" => 245, "BACKSPACE" or "RSHIFT" or "LSHIFT" or "ENTER" => 92, "CAPS" or "TAB" => 72, _ => 48 };
-                panel.Children.Add(CreateInputKeyButton(key, GetPhysicalKeyLabel(key), used, conflictKeys.Contains(key), width, 46));
-            }
-            KeyboardPanel.Children.Add(panel);
+            counts.TryGetValue(key.Key, out var used);
+            var button = CreateInputKeyButton(key.Key, GetPhysicalKeyLabel(key.Key), used, conflictKeys.Contains(key.Key), key.Width * pitchX - 6, key.Height * pitchY - 6);
+            button.Margin = new Thickness(0);
+            canvas.Children.Add(button); Canvas.SetLeft(button, key.X * pitchX + 3); Canvas.SetTop(button, key.Y * pitchY + 3);
         }
+        KeyboardPanel.Children.Add(canvas);
         BuildMouse(counts, conflictKeys);
     }
 
@@ -847,24 +849,81 @@ public partial class MainWindow : Window
     private static void PatchProperty(string file, string key, string value) { if (!File.Exists(file)) return; File.Copy(file, file + ".mcprofilestudio.bak", true); var lines = File.ReadAllLines(file).ToList(); var i = lines.FindIndex(x => x.StartsWith(key + "=", StringComparison.Ordinal)); if (i >= 0) lines[i] = key + "=" + value; else lines.Add(key + "=" + value); File.WriteAllLines(file, lines); }
     private void RefreshSummary() { PackCount.Text = packs.Count.ToString(); ModCount.Text = allKeys.Select(k => k.ModId).Distinct().Count().ToString(); var conflicts = allKeys.Where(k => k.CountsAsConflict && !k.Value.EndsWith("unknown")).GroupBy(k => k.Value).Count(g => g.Count() > 1); KeyCount.Text = $"{allKeys.Count} / {conflicts}"; LibrarySummary.Text = $"资源包：{(settings.PackLibrary.Length == 0 ? "未设置" : settings.PackLibrary)}\n光影包：{(settings.ShaderLibrary.Length == 0 ? "未设置" : settings.ShaderLibrary)}"; }
 
-    private static Dictionary<string, string[][]> CreateKeyboardLayouts()
+    private static Dictionary<string, KeyboardLayoutSpec> CreateKeyboardLayouts()
     {
-        string[] Row(string value) => value.Split(' ', StringSplitOptions.RemoveEmptyEntries);
-        var compact = new[] { Row("ESC 1 2 3 4 5 6 7 8 9 0 - = BACKSPACE"), Row("TAB Q W E R T Y U I O P [ ] \\"), Row("CAPS A S D F G H J K L ; ' ENTER"), Row("LSHIFT Z X C V B N M , . / RSHIFT"), Row("LCTRL LWIN LALT SPACE RALT FN RCTRL") };
-        var layouts = new Dictionary<string, string[][]>
+        return new Dictionary<string, KeyboardLayoutSpec>
         {
-            ["60 / 61 键"] = compact,
-            ["65 / 68 键"] = compact.Select((r,i) => i == 4 ? r.Concat(Row("LEFT DOWN RIGHT")).ToArray() : r).ToArray(),
-            ["75 / 84 键"] = new[] { Row("ESC F1 F2 F3 F4 F5 F6 F7 F8 F9 F10 F11 F12 DEL"), Row("` 1 2 3 4 5 6 7 8 9 0 - = BACKSPACE"), Row("TAB Q W E R T Y U I O P [ ] \\"), Row("CAPS A S D F G H J K L ; ' ENTER"), Row("LSHIFT Z X C V B N M , . / RSHIFT UP"), Row("LCTRL LWIN LALT SPACE RALT FN RCTRL LEFT DOWN RIGHT") },
-            ["80 / 87 键 TKL"] = new[] { Row("ESC F1 F2 F3 F4 F5 F6 F7 F8 F9 F10 F11 F12 PRTSC SCRLK PAUSE"), Row("` 1 2 3 4 5 6 7 8 9 0 - = BACKSPACE INS HOME PGUP"), Row("TAB Q W E R T Y U I O P [ ] \\ DEL END PGDN"), Row("CAPS A S D F G H J K L ; ' ENTER"), Row("LSHIFT Z X C V B N M , . / RSHIFT UP"), Row("LCTRL LWIN LALT SPACE RALT FN RCTRL LEFT DOWN RIGHT") },
-            ["96 / 98 键"] = new[] { Row("ESC F1 F2 F3 F4 F5 F6 F7 F8 F9 F10 F11 F12 DEL HOME END"), Row("` 1 2 3 4 5 6 7 8 9 0 - = BACKSPACE NUMLOCK NUM/ NUM*"), Row("TAB Q W E R T Y U I O P [ ] \\ NUM7 NUM8 NUM9"), Row("CAPS A S D F G H J K L ; ' ENTER NUM4 NUM5 NUM6"), Row("LSHIFT Z X C V B N M , . / RSHIFT UP NUM1 NUM2 NUM3"), Row("LCTRL LWIN LALT SPACE RALT FN RCTRL LEFT DOWN RIGHT NUM0 NUM.") },
-            ["104 键全尺寸"] = FullKeyboard(false), ["108 键全尺寸"] = FullKeyboard(true)
-        }; return layouts;
+            ["60 / 61 键"] = CompactLayout(false, false),
+            ["65 / 68 键"] = CompactLayout(true, false),
+            ["75 / 84 键"] = CompactLayout(true, true),
+            ["80 / 87 键 TKL"] = FullKeyboard(false, false),
+            ["96 / 98 键"] = CompactNumpadLayout(),
+            ["104 键全尺寸"] = FullKeyboard(true, false),
+            ["108 键全尺寸"] = FullKeyboard(true, true)
+        };
     }
-    private static string[][] FullKeyboard(bool extra)
+
+    private static KeyboardLayoutSpec CompactLayout(bool arrows, bool functionRow)
     {
-        string[] R(string value) => value.Split(' ', StringSplitOptions.RemoveEmptyEntries); var top = extra ? "ESC F1 F2 F3 F4 F5 F6 F7 F8 F9 F10 F11 F12 M1 M2 M3 M4 PRTSC SCRLK PAUSE" : "ESC F1 F2 F3 F4 F5 F6 F7 F8 F9 F10 F11 F12 PRTSC SCRLK PAUSE";
-        return new[] { R(top), R("` 1 2 3 4 5 6 7 8 9 0 - = BACKSPACE INS HOME PGUP NUMLOCK NUM/ NUM* NUM-"), R("TAB Q W E R T Y U I O P [ ] \\ DEL END PGDN NUM7 NUM8 NUM9 NUM+"), R("CAPS A S D F G H J K L ; ' ENTER NUM4 NUM5 NUM6 NUM+"), R("LSHIFT Z X C V B N M , . / RSHIFT UP NUM1 NUM2 NUM3 NUMENTER"), R("LCTRL LWIN LALT SPACE RALT FN RCTRL LEFT DOWN RIGHT NUM0 NUM. NUMENTER") };
+        var keys = new List<KeyboardKeySpec>(); var y = functionRow ? 1 : 0;
+        AddAnsiBlock(keys, y);
+        if (functionRow)
+        {
+            AddSequence(keys, 0, 0, "ESC F1 F2 F3 F4 F5 F6 F7 F8 F9 F10 F11 F12 DEL");
+            keys.Add(new("INS", 15, 0)); keys.Add(new("PGUP", 16, 1)); keys.Add(new("PGDN", 16, 2)); keys.Add(new("HOME", 16, 3)); keys.Add(new("END", 16, 4));
+            keys.Add(new("UP", 15, 4)); keys.Add(new("LEFT", 14, 5)); keys.Add(new("DOWN", 15, 5)); keys.Add(new("RIGHT", 16, 5));
+        }
+        else if (arrows)
+        {
+            keys.Add(new("UP", 16.25, y + 3)); keys.Add(new("LEFT", 15.25, y + 4)); keys.Add(new("DOWN", 16.25, y + 4)); keys.Add(new("RIGHT", 17.25, y + 4));
+        }
+        return new KeyboardLayoutSpec(functionRow ? 17.25 : arrows ? 18.25 : 15, functionRow ? 6 : 5, keys);
+    }
+
+    private static KeyboardLayoutSpec FullKeyboard(bool numpad, bool extra)
+    {
+        var keys = new List<KeyboardKeySpec>();
+        AddAnsiBlock(keys, 1);
+        AddSequence(keys, 0, 0, "ESC"); AddSequence(keys, 2, 0, "F1 F2 F3 F4"); AddSequence(keys, 6.5, 0, "F5 F6 F7 F8"); AddSequence(keys, 11, 0, "F9 F10 F11 F12");
+        AddSequence(keys, 15.5, 0, "PRTSC SCRLK PAUSE");
+        keys.Add(new("INS", 15.5, 1)); keys.Add(new("HOME", 16.5, 1)); keys.Add(new("PGUP", 17.5, 1));
+        keys.Add(new("DEL", 15.5, 2)); keys.Add(new("END", 16.5, 2)); keys.Add(new("PGDN", 17.5, 2));
+        keys.Add(new("UP", 16.5, 4)); keys.Add(new("LEFT", 15.5, 5)); keys.Add(new("DOWN", 16.5, 5)); keys.Add(new("RIGHT", 17.5, 5));
+        if (numpad) AddNumpad(keys, 19, 1);
+        if (extra) AddSequence(keys, 19, 0, "M1 M2 M3 M4");
+        return new KeyboardLayoutSpec(numpad ? 23 : 18.5, 6, keys);
+    }
+
+    private static KeyboardLayoutSpec CompactNumpadLayout()
+    {
+        var keys = new List<KeyboardKeySpec>(); AddAnsiBlock(keys, 1);
+        AddSequence(keys, 0, 0, "ESC F1 F2 F3 F4 F5 F6 F7 F8 F9 F10 F11 F12 DEL HOME END");
+        keys.Add(new("UP", 16.5, 4)); keys.Add(new("LEFT", 15.5, 5)); keys.Add(new("DOWN", 16.5, 5)); keys.Add(new("RIGHT", 17.5, 5));
+        AddNumpad(keys, 19, 1);
+        return new KeyboardLayoutSpec(23, 6, keys);
+    }
+
+    private static void AddAnsiBlock(List<KeyboardKeySpec> keys, double y)
+    {
+        AddSequence(keys, 0, y, "` 1 2 3 4 5 6 7 8 9 0 - ="); keys.Add(new("BACKSPACE", 13, y, 2));
+        keys.Add(new("TAB", 0, y + 1, 1.5)); AddSequence(keys, 1.5, y + 1, "Q W E R T Y U I O P [ ]"); keys.Add(new("\\", 13.5, y + 1, 1.5));
+        keys.Add(new("CAPS", 0, y + 2, 1.75)); AddSequence(keys, 1.75, y + 2, "A S D F G H J K L ; '"); keys.Add(new("ENTER", 12.75, y + 2, 2.25));
+        keys.Add(new("LSHIFT", 0, y + 3, 2.25)); AddSequence(keys, 2.25, y + 3, "Z X C V B N M , . /"); keys.Add(new("RSHIFT", 12.25, y + 3, 2.75));
+        keys.Add(new("LCTRL", 0, y + 4, 1.25)); keys.Add(new("LWIN", 1.25, y + 4, 1.25)); keys.Add(new("LALT", 2.5, y + 4, 1.25)); keys.Add(new("SPACE", 3.75, y + 4, 6.25)); keys.Add(new("RALT", 10, y + 4, 1.25)); keys.Add(new("RWIN", 11.25, y + 4, 1.25)); keys.Add(new("MENU", 12.5, y + 4, 1.25)); keys.Add(new("RCTRL", 13.75, y + 4, 1.25));
+    }
+
+    private static void AddNumpad(List<KeyboardKeySpec> keys, double x, double y)
+    {
+        AddSequence(keys, x, y, "NUMLOCK NUM/ NUM* NUM-");
+        AddSequence(keys, x, y + 1, "NUM7 NUM8 NUM9"); keys.Add(new("NUM+", x + 3, y + 1, 1, 2));
+        AddSequence(keys, x, y + 2, "NUM4 NUM5 NUM6");
+        AddSequence(keys, x, y + 3, "NUM1 NUM2 NUM3"); keys.Add(new("NUMENTER", x + 3, y + 3, 1, 2));
+        keys.Add(new("NUM0", x, y + 4, 2)); keys.Add(new("NUM.", x + 2, y + 4));
+    }
+
+    private static void AddSequence(List<KeyboardKeySpec> keys, double x, double y, string values)
+    {
+        foreach (var key in values.Split(' ', StringSplitOptions.RemoveEmptyEntries)) { keys.Add(new(key, x, y)); x += 1; }
     }
 
     private void TitleBar_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
