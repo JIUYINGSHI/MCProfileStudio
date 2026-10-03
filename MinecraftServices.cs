@@ -1,6 +1,7 @@
 using System.IO;
 using System.IO.Compression;
 using System.Text.Json;
+using System.Text;
 using System.Text.RegularExpressions;
 
 namespace McProfileStudio;
@@ -132,9 +133,39 @@ public static class MinecraftConfig
     {
         foreach (var pair in new[] { (Path.Combine(directory, "config", "iris.properties"), "shaderPack"), (Path.Combine(directory, "optionsof.txt"), "ofShaderPack") })
         {
-            if (!File.Exists(pair.Item1)) continue; var line = File.ReadLines(pair.Item1).FirstOrDefault(x => x.StartsWith(pair.Item2 + "=", StringComparison.Ordinal)); if (line != null) return line[(line.IndexOf('=') + 1)..].Trim();
+            if (!File.Exists(pair.Item1)) continue; var line = File.ReadLines(pair.Item1).FirstOrDefault(x => x.StartsWith(pair.Item2 + "=", StringComparison.Ordinal)); if (line != null) return DecodeJavaPropertyValue(line[(line.IndexOf('=') + 1)..].Trim());
         }
         return "";
+    }
+    public static string EncodeJavaPropertyValue(string value)
+    {
+        var builder = new StringBuilder(value.Length);
+        foreach (var character in value)
+        {
+            if (character is '\\' or '=' or ':' or '#' or '!') builder.Append('\\').Append(character);
+            else if (character < 0x20 || character > 0x7E) builder.Append("\\u").Append(((int)character).ToString("X4"));
+            else builder.Append(character);
+        }
+        return builder.ToString();
+    }
+    public static string DecodeJavaPropertyValue(string value)
+    {
+        return Regex.Replace(value, @"\\u([0-9a-fA-F]{4})", match => ((char)Convert.ToInt32(match.Groups[1].Value, 16)).ToString())
+            .Replace("\\=", "=", StringComparison.Ordinal).Replace("\\:", ":", StringComparison.Ordinal)
+            .Replace("\\#", "#", StringComparison.Ordinal).Replace("\\!", "!", StringComparison.Ordinal)
+            .Replace("\\\\", "\\", StringComparison.Ordinal);
+    }
+    public static void PatchJavaProperty(string file, string key, string value, bool createIfMissing = false)
+    {
+        var existed = File.Exists(file);
+        if (!existed && !createIfMissing) return;
+        var parent = Path.GetDirectoryName(file); if (!string.IsNullOrWhiteSpace(parent)) Directory.CreateDirectory(parent);
+        if (existed) File.Copy(file, file + ".mcprofilestudio.bak", true);
+        var lines = (existed ? File.ReadAllLines(file) : ["# Managed by MC Profile Studio"]).ToList();
+        var encodedValue = EncodeJavaPropertyValue(value);
+        var i = lines.FindIndex(x => x.StartsWith(key + "=", StringComparison.Ordinal));
+        if (i >= 0) lines[i] = key + "=" + encodedValue; else lines.Add(key + "=" + encodedValue);
+        File.WriteAllLines(file, lines, new UTF8Encoding(false));
     }
     private static KeyValuePair<string, string>? ParseLine(string line) { var i = line.IndexOf(':'); return i <= 0 ? null : new(line[..i], line[(i + 1)..]); }
 

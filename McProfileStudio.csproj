@@ -6,10 +6,10 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <UseWPF>true</UseWPF>
-    <Version>7.2.0</Version>
-    <AssemblyVersion>7.2.0.0</AssemblyVersion>
-    <FileVersion>7.2.0.0</FileVersion>
-    <InformationalVersion>7.2.0</InformationalVersion>
+    <Version>7.2.1</Version>
+    <AssemblyVersion>7.2.1.0</AssemblyVersion>
+    <FileVersion>7.2.1.0</FileVersion>
+    <InformationalVersion>7.2.1</InformationalVersion>
     <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
     <ApplicationIcon>Assets\app.ico</ApplicationIcon>
     <PublishSingleFile>true</PublishSingleFile>
@@ -29,6 +29,7 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <Compile Remove="tests\**\*.cs" />
     <Resource Include="Assets\background.jpg" />
     <Resource Include="Assets\MapleMono.ttf" />
     <Resource Include="Assets\app.ico" />

@@ -14,6 +14,7 @@ public partial class MainWindow
     private TextBox? modSearchBox;
     private ComboBox? marketplaceVersionCombo, marketplaceLoaderCombo, marketplaceSourceCombo;
     private StackPanel? marketplaceResults, favoriteModsList, favoriteStatusList;
+    private Border? favoriteHomeCard;
     private TextBlock? marketplaceStatus, favoriteHomeSummary;
     private ComboBox? favoriteProfileCombo;
     private bool switchingFavoriteProfile;
@@ -117,8 +118,9 @@ public partial class MainWindow
 
     private void BuildFavoriteHomeCard()
     {
+        if (favoriteHomeCard != null) return;
         if (HomePage.Children.OfType<StackPanel>().FirstOrDefault() is not { } home) return;
-        var card = MakeFavoriteCard(new Thickness(0, 0, 0, 14)); var panel = new StackPanel(); panel.Children.Add(new TextBlock { Text = "收藏 Mod 检测", Foreground = Brushes.White, FontSize = 18, FontWeight = FontWeights.SemiBold });
+        var card = MakeFavoriteCard(new Thickness(0, 0, 0, 14)); favoriteHomeCard = card; var panel = new StackPanel(); panel.Children.Add(new TextBlock { Text = "收藏 Mod 检测", Foreground = Brushes.White, FontSize = 18, FontWeight = FontWeights.SemiBold });
         favoriteHomeSummary = new TextBlock { Foreground = new SolidColorBrush(Color.FromRgb(186, 199, 216)), Margin = new Thickness(0, 7, 0, 8), TextWrapping = TextWrapping.Wrap }; panel.Children.Add(favoriteHomeSummary);
         favoriteStatusList = new StackPanel(); panel.Children.Add(new ScrollViewer { Content = favoriteStatusList, MaxHeight = 130, VerticalScrollBarVisibility = ScrollBarVisibility.Auto }); var actions = new WrapPanel { Margin = new Thickness(0, 10, 0, 0) }; var download = new Button { Content = "检查并选择要下载的 Mod", Margin = new Thickness(0, 0, 8, 0) }; download.Click += OpenFavoriteDownloadDialog_Click; var apiSettings = new Button { Content = "下载源设置", Background = new SolidColorBrush(Color.FromRgb(58, 58, 58)) }; apiSettings.Click += ConfigureMarketplace_Click; actions.Children.Add(download); actions.Children.Add(apiSettings); panel.Children.Add(actions); card.Child = panel;
         home.Children.Insert(Math.Min(2, home.Children.Count), card);

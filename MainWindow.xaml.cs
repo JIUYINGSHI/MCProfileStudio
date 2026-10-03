@@ -67,7 +67,7 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         packMouseHookProc = PackMouseHookCallback;
-        EnsurePackProfiles(); EnsureKeyProfiles(); EnsureFavoriteModProfiles(); draftSelectedShader = settings.SelectedShader; InitializeComponent(); InitializeToastLayer(); packDragScrollTimer.Tick += PackDragScrollTimer_Tick; ApplyMinecraftNavIcons(); PackList.ItemsSource = packs; ShaderList.ItemsSource = shaders; BuildPackManager(); BuildDraftControls(); BuildDataToolsCard(); EnableHomeScrolling();
+        EnsurePackProfiles(); EnsureKeyProfiles(); EnsureFavoriteModProfiles(); draftSelectedShader = settings.SelectedShader; InitializeComponent(); InitializeToastLayer(); packDragScrollTimer.Tick += PackDragScrollTimer_Tick; ApplyMinecraftNavIcons(); PackList.ItemsSource = packs; ShaderList.ItemsSource = shaders; BuildPackManager(); BuildDraftControls(); BuildFavoriteHomeCard(); RefreshFavoriteModStatus(); BuildDataToolsCard(); EnableHomeScrolling();
         LayoutCombo.ItemsSource = KeyboardLayouts.Keys; LayoutCombo.SelectedItem = KeyboardLayouts.ContainsKey(settings.KeyboardLayout) ? settings.KeyboardLayout : "108 键全尺寸";
         SourceInitialized += (_, _) => EnableMica(); Loaded += (_, _) => { RefreshSummary(); FitKeyboard(); }; ContentRendered += InitializeDeferredUi; SizeChanged += (_, _) => FitKeyboard();
     }
@@ -870,7 +870,18 @@ public partial class MainWindow : Window
         }
     }
     private string ApplyResourcePacksOnly() { MinecraftConfig.MirrorLibrary(settings.PackLibrary, Path.Combine(instance, "resourcepacks")); MinecraftConfig.PatchOptions(instance, new Dictionary<string, string>(StringComparer.Ordinal) { ["resourcePacks"] = MinecraftConfig.ResourcePackValue(packs) }); return "资源包"; }
-    private string ApplyShadersOnly() { MinecraftConfig.MirrorLibrary(settings.ShaderLibrary, Path.Combine(instance, "shaderpacks")); ApplyShaderSelection(); return "光影"; }
+    private string ApplyShadersOnly()
+    {
+        if (string.IsNullOrWhiteSpace(draftSelectedShader)) throw new InvalidOperationException("当前没有选择要应用的光影包。");
+        if (!MinecraftConfig.DetectModIds(instance).Contains("iris")) throw new InvalidOperationException("当前实例未检测到 Iris，无法应用光影设置。");
+        MinecraftConfig.MirrorLibrary(settings.ShaderLibrary, Path.Combine(instance, "shaderpacks"));
+        var targetShader = Path.Combine(instance, "shaderpacks", draftSelectedShader);
+        if (!File.Exists(targetShader) && !Directory.Exists(targetShader)) throw new FileNotFoundException("光影包未能复制到当前实例。", draftSelectedShader);
+        ApplyShaderSelection();
+        var appliedShader = MinecraftConfig.ReadShaderSelection(instance);
+        if (!string.Equals(appliedShader, draftSelectedShader, StringComparison.Ordinal)) throw new IOException("Iris 设置写入后校验失败。");
+        return "光影";
+    }
     private string ApplyKeysOnly()
     {
         var changes = allKeys.ToDictionary(k => k.OptionKey, k => k.Value, StringComparer.Ordinal);
@@ -879,8 +890,14 @@ public partial class MainWindow : Window
         if (changes.Count == 0) throw new InvalidOperationException("当前没有可写入的键位配置。");
         MinecraftConfig.PatchOptions(instance, changes); return "键位";
     }
-    private void ApplyShaderSelection() { if (string.IsNullOrWhiteSpace(draftSelectedShader)) return; PatchProperty(Path.Combine(instance, "config", "iris.properties"), "shaderPack", draftSelectedShader); PatchProperty(Path.Combine(instance, "optionsof.txt"), "ofShaderPack", draftSelectedShader); }
-    private static void PatchProperty(string file, string key, string value) { if (!File.Exists(file)) return; File.Copy(file, file + ".mcprofilestudio.bak", true); var lines = File.ReadAllLines(file).ToList(); var i = lines.FindIndex(x => x.StartsWith(key + "=", StringComparison.Ordinal)); if (i >= 0) lines[i] = key + "=" + value; else lines.Add(key + "=" + value); File.WriteAllLines(file, lines); }
+    private void ApplyShaderSelection()
+    {
+        var iris = Path.Combine(instance, "config", "iris.properties");
+        MinecraftConfig.PatchJavaProperty(iris, "shaderPack", draftSelectedShader, true);
+        MinecraftConfig.PatchJavaProperty(iris, "enableShaders", "true", true);
+        var optiFine = Path.Combine(instance, "optionsof.txt");
+        if (File.Exists(optiFine)) MinecraftConfig.PatchJavaProperty(optiFine, "ofShaderPack", draftSelectedShader);
+    }
     private void RefreshSummary() { PackCount.Text = packs.Count.ToString(); ModCount.Text = allKeys.Select(k => k.ModId).Distinct().Count().ToString(); var conflicts = allKeys.Where(k => k.CountsAsConflict && !k.Value.EndsWith("unknown")).GroupBy(k => k.Value).Count(g => g.Count() > 1); KeyCount.Text = $"{allKeys.Count} / {conflicts}"; LibrarySummary.Text = $"资源包：{(settings.PackLibrary.Length == 0 ? "未设置" : settings.PackLibrary)}\n光影包：{(settings.ShaderLibrary.Length == 0 ? "未设置" : settings.ShaderLibrary)}"; }
 
     private static Dictionary<string, KeyboardLayoutSpec> CreateKeyboardLayouts()
