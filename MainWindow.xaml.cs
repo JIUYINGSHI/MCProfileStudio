@@ -810,11 +810,20 @@ public partial class MainWindow : Window
         counts.TryGetValue("鼠标 MIDDLE", out var middleUsed); var wheel = new Border { Width = 17, Height = 39, CornerRadius = new CornerRadius(8), Background = RegionBrush("鼠标 MIDDLE"), Cursor = Cursors.Hand, Tag = "鼠标 MIDDLE", ToolTip = "中键 / 滚轮按下" }; wheel.MouseLeftButtonDown += (_, e) => { e.Handled = true; SelectPhysicalKey("鼠标 MIDDLE"); }; MousePanel.Children.Add(wheel); Canvas.SetLeft(wheel, 86.5); Canvas.SetTop(wheel, 25);
         for (var y = 31; y <= 55; y += 6) { var groove = new System.Windows.Shapes.Line { X1 = 90, X2 = 100, Y1 = y, Y2 = y, Stroke = new SolidColorBrush(Color.FromArgb(120, 220, 235, 248)), StrokeThickness = 1, IsHitTestVisible = false }; MousePanel.Children.Add(groove); }
         var middleLabel = new Border { MinWidth = 42, Height = 18, CornerRadius = new CornerRadius(9), Background = RegionBrush("鼠标 MIDDLE"), IsHitTestVisible = false, Child = new TextBlock { Text = middleUsed > 0 ? $"中键 {middleUsed}" : "中键", Foreground = Brushes.White, FontSize = 9, FontWeight = FontWeights.SemiBold, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center } }; MousePanel.Children.Add(middleLabel); Canvas.SetLeft(middleLabel, 74); Canvas.SetTop(middleLabel, 70);
-        void AddSide(string key, string label, double top)
+        void AddSide(string key, string label, string number, double top)
         {
-            counts.TryGetValue(key, out var used); var side = new Border { Width = 45, Height = 27, CornerRadius = new CornerRadius(5, 11, 11, 5), Background = RegionBrush(key), BorderBrush = new SolidColorBrush(Color.FromRgb(90, 118, 141)), BorderThickness = new Thickness(1), Cursor = Cursors.Hand, Tag = key, ToolTip = label, Child = new TextBlock { Text = used > 0 ? $"{label}  {used}" : label, Foreground = Brushes.White, FontSize = 9, FontWeight = FontWeights.SemiBold, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center } }; side.MouseLeftButtonDown += (_, e) => { e.Handled = true; SelectPhysicalKey(key); }; MousePanel.Children.Add(side); Canvas.SetLeft(side, 30); Canvas.SetTop(side, top);
+            counts.TryGetValue(key, out var used);
+            var content = new Grid();
+            content.Children.Add(new TextBlock { Text = $"侧\n键\n{number}", Foreground = Brushes.White, FontSize = 8.5, LineHeight = 10, FontWeight = FontWeights.SemiBold, TextAlignment = TextAlignment.Center, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center });
+            if (used > 0)
+            {
+                var badge = new Border { MinWidth = 13, Height = 13, CornerRadius = new CornerRadius(7), Background = new SolidColorBrush(Color.FromRgb(12, 18, 23)), HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Bottom, Margin = new Thickness(0, 0, -5, -4), Child = new TextBlock { Text = used.ToString(), Foreground = Brushes.White, FontSize = 7, FontWeight = FontWeights.Bold, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center } };
+                content.Children.Add(badge);
+            }
+            var side = new Border { Width = 25, Height = 42, CornerRadius = new CornerRadius(5, 10, 10, 5), Background = RegionBrush(key), BorderBrush = new SolidColorBrush(Color.FromRgb(90, 118, 141)), BorderThickness = new Thickness(1), Cursor = Cursors.Hand, Tag = key, ToolTip = used > 0 ? $"{label} · {used} 个占用" : label, Child = content };
+            side.MouseLeftButtonDown += (_, e) => { e.Handled = true; SelectPhysicalKey(key); }; MousePanel.Children.Add(side); Canvas.SetLeft(side, 27); Canvas.SetTop(side, top);
         }
-        AddSide("鼠标 4", "侧键 4", 103); AddSide("鼠标 5", "侧键 5", 137);
+        AddSide("鼠标 4", "侧键 4", "4", 99); AddSide("鼠标 5", "侧键 5", "5", 147);
         var palmLine = new System.Windows.Shapes.Path { Data = Geometry.Parse("M58,174 C79,187 111,187 132,174"), Stroke = new SolidColorBrush(Color.FromArgb(75, 112, 151, 181)), StrokeThickness = 1.4, IsHitTestVisible = false }; MousePanel.Children.Add(palmLine);
     }
 

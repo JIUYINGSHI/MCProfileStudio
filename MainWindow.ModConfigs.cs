@@ -31,6 +31,7 @@ public partial class MainWindow
         public JsonObject HotkeyOverrides { get; } = new();
         public List<DiscoveredBooleanOption> DiscoveredOptions { get; } = [];
         public Dictionary<string, bool> BooleanOverrides { get; } = new(StringComparer.OrdinalIgnoreCase);
+        public CarpetRuleCatalog? CarpetRules { get; set; }
         public bool IsDetected { get; set; }
         public override string ToString() => Definition.DisplayName;
     }
@@ -216,6 +217,8 @@ public partial class MainWindow
         modTranslationInfoCache.Clear(); modCategoryTranslationCache.Clear(); modOptionTranslationCache.Clear();
         if (!string.IsNullOrWhiteSpace(instance))
         {
+            var carpetDraft = DiscoverCarpetRuleConfig();
+            if (carpetDraft != null) modConfigDrafts.Add(carpetDraft);
             foreach (var definition in SupportedModConfigs)
             {
                 var path = Path.Combine(instance, definition.RelativePath.Replace('/', Path.DirectorySeparatorChar));
@@ -337,6 +340,7 @@ public partial class MainWindow
     {
         if (modConfigTabs == null) return; modConfigTabs.Items.Clear();
         if (modConfigModList?.SelectedItem is not ModConfigDraft draft) return;
+        if (draft.CarpetRules != null) { RenderCarpetRuleConfig(draft); return; }
         if (draft.Json == null)
         {
             var panel = new StackPanel { Margin = new Thickness(4) };
@@ -924,6 +928,11 @@ public partial class MainWindow
                 var destination = Path.Combine(root, draft.Definition.Id);
                 if (Directory.Exists(destination)) { MakeTreeWritable(destination); Directory.Delete(destination, true); }
                 Directory.CreateDirectory(destination);
+                if (draft.CarpetRules != null)
+                {
+                    SaveCarpetRuleProfile(draft.CarpetRules, Path.Combine(destination, "carpet-rules.json"));
+                    continue;
+                }
                 if (draft.IsAutoDiscovered)
                 {
                     var configRoot = Path.Combine(instance, "config"); var filesRoot = Path.Combine(destination, "files");
@@ -992,6 +1001,12 @@ public partial class MainWindow
         modConfigViewCache.Clear();
         foreach (var draft in modConfigDrafts)
         {
+            if (draft.CarpetRules != null)
+            {
+                var profileFile = Path.Combine(root, draft.Definition.Id, "carpet-rules.json");
+                if (File.Exists(profileFile)) LoadCarpetRuleProfile(draft.CarpetRules, profileFile);
+                continue;
+            }
             if (draft.IsAutoDiscovered)
             {
                 var source = Directory.Exists(draft.SourcePath) ? Path.Combine(draft.SourcePath, draft.Definition.PrimaryJson) : draft.SourcePath;
@@ -1022,6 +1037,15 @@ public partial class MainWindow
             foreach (var draft in drafts)
             {
                 var source = Path.Combine(profileRoot, draft.Definition.Id); if (!Directory.Exists(source) || !draft.IsDetected) continue;
+                if (draft.CarpetRules != null)
+                {
+                    var profileFile = Path.Combine(source, "carpet-rules.json");
+                    if (!File.Exists(profileFile)) continue;
+                    LoadCarpetRuleProfile(draft.CarpetRules, profileFile);
+                    ApplyCarpetRuleProfile(draft.CarpetRules);
+                    applied++;
+                    continue;
+                }
                 if (draft.IsAutoDiscovered)
                 {
                     var filesRoot = Path.Combine(source, "files"); if (!Directory.Exists(filesRoot)) continue;

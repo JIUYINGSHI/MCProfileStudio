@@ -55,7 +55,8 @@ public static class MinecraftConfig
     private static bool IsLoader(string id) => new[] { "minecraft", "java", "fabricloader", "fabric-api", "forge", "neoforge", "quilt_loader" }.Contains(id, StringComparer.OrdinalIgnoreCase);
     private static void LoadLang(ZipArchive zip, ModInfo info, string locale, Dictionary<string, string> target)
     {
-        foreach (var entry in zip.Entries.Where(e => e.FullName.EndsWith($"/lang/{locale}.json", StringComparison.OrdinalIgnoreCase))) try { using var doc = JsonDocument.Parse(entry.Open()); foreach (var p in doc.RootElement.EnumerateObject()) if (p.Value.ValueKind == JsonValueKind.String) target[p.Name] = p.Value.GetString() ?? ""; } catch { }
+        var options = new JsonDocumentOptions { AllowTrailingCommas = true, CommentHandling = JsonCommentHandling.Skip };
+        foreach (var entry in zip.Entries.Where(e => e.FullName.EndsWith($"/lang/{locale}.json", StringComparison.OrdinalIgnoreCase))) try { using var doc = JsonDocument.Parse(entry.Open(), options); foreach (var p in doc.RootElement.EnumerateObject()) if (p.Value.ValueKind == JsonValueKind.String) target[p.Name] = p.Value.GetString() ?? ""; } catch { }
     }
     private static string FindModName(Dictionary<string, string> lang, string id)
     {
