@@ -67,7 +67,7 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         packMouseHookProc = PackMouseHookCallback;
-        EnsurePackProfiles(); EnsureKeyProfiles(); EnsureFavoriteModProfiles(); draftSelectedShader = settings.SelectedShader; InitializeComponent(); InitializeToastLayer(); packDragScrollTimer.Tick += PackDragScrollTimer_Tick; ApplyMinecraftNavIcons(); PackList.ItemsSource = packs; ShaderList.ItemsSource = shaders; BuildPackManager(); BuildDraftControls(); BuildFavoriteHomeCard(); RefreshFavoriteModStatus(); BuildDataToolsCard(); EnableHomeScrolling();
+        EnsurePackProfiles(); EnsureKeyProfiles(); EnsureFavoriteModProfiles(); draftSelectedShader = settings.SelectedShader; InitializeComponent(); EnableGlobalMouseDragScrolling(); InitializeToastLayer(); packDragScrollTimer.Tick += PackDragScrollTimer_Tick; ApplyMinecraftNavIcons(); PackList.ItemsSource = packs; ShaderList.ItemsSource = shaders; BuildPackManager(); BuildDraftControls(); BuildFavoriteHomeCard(); RefreshFavoriteModStatus(); BuildDataToolsCard(); EnableHomeScrolling();
         LayoutCombo.ItemsSource = KeyboardLayouts.Keys; LayoutCombo.SelectedItem = KeyboardLayouts.ContainsKey(settings.KeyboardLayout) ? settings.KeyboardLayout : "108 键全尺寸";
         SourceInitialized += (_, _) => EnableMica(); Loaded += (_, _) => { RefreshSummary(); FitKeyboard(); }; ContentRendered += InitializeDeferredUi; SizeChanged += (_, _) => FitKeyboard();
     }

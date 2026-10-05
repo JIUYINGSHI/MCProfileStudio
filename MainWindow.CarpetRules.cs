@@ -2,6 +2,7 @@ using System.IO;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
+using System.Globalization;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
@@ -26,6 +27,8 @@ public partial class MainWindow
         public string ChineseDescription { get; init; } = "";
         public string EnglishDescription { get; init; } = "";
         public string Value { get; set; } = "";
+        public CarpetRuleValueKind Kind { get; init; } = CarpetRuleValueKind.Text;
+        public IReadOnlyList<string> Suggestions { get; init; } = [];
     }
 
     private ModConfigDraft? DiscoverCarpetRuleConfig()
@@ -34,6 +37,7 @@ public partial class MainWindow
         var configPath = Path.Combine(instance, "config", "carpet", "default_carpet.conf");
         var values = ReadCarpetConf(configPath);
         var catalog = new CarpetRuleCatalog { ConfigPath = configPath };
+        var metadata = CarpetRuleMetadataScanner.Scan(mods.Values.Where(IsCarpetRuleProvider).Select(mod => mod.JarPath));
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var mod in mods.Values.Where(IsCarpetRuleProvider).OrderBy(mod => mod.Id.Equals("carpet", StringComparison.OrdinalIgnoreCase) ? 0 : 1).ThenBy(mod => mod.EnglishName))
         {
@@ -49,11 +53,13 @@ public partial class MainWindow
                 var englishName = FindCarpetTranslation(mod.EnglishTranslations, name, "name");
                 var englishDescription = FindCarpetTranslation(mod.EnglishTranslations, name, "desc");
                 values.TryGetValue(name, out var value);
+                metadata.TryGetValue(name, out var ruleMetadata);
                 catalog.Rules.Add(new CarpetRuleEntry
                 {
                     Name = name, SourceId = mod.Id, SourceName = string.IsNullOrWhiteSpace(mod.ChineseName) ? mod.EnglishName : mod.ChineseName,
                     ChineseName = chineseName ?? "", EnglishName = englishName ?? HumanizeConfigName(name),
-                    ChineseDescription = chineseDescription ?? "", EnglishDescription = englishDescription ?? "", Value = value ?? ""
+                    ChineseDescription = chineseDescription ?? "", EnglishDescription = englishDescription ?? "", Value = value ?? "",
+                    Kind = ruleMetadata?.Kind ?? InferCarpetRuleKind(value, chineseDescription, englishDescription), Suggestions = ruleMetadata?.Suggestions ?? []
                 });
             }
         }
@@ -85,6 +91,17 @@ public partial class MainWindow
     {
         foreach (var item in translations) if (TryParseCarpetTranslationKey(item.Key, out var candidate, out var candidatePart) && candidate.Equals(ruleName, StringComparison.OrdinalIgnoreCase) && candidatePart.Equals(part, StringComparison.OrdinalIgnoreCase)) return item.Value;
         return null;
+    }
+
+    private static CarpetRuleValueKind InferCarpetRuleKind(string? value, string? chineseDescription, string? englishDescription)
+    {
+        if (bool.TryParse(value, out _)) return CarpetRuleValueKind.Boolean;
+        if (long.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out _)) return CarpetRuleValueKind.Integer;
+        if (double.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out _)) return CarpetRuleValueKind.Decimal;
+        var description = $"{chineseDescription} {englishDescription}";
+        if (Regex.IsMatch(description, "整数|数量|距离|半径|方块|区块|刻|秒|上限|下限|integer|count|distance|radius|chunks?|blocks?|ticks?|limit", RegexOptions.IgnoreCase)) return CarpetRuleValueKind.Integer;
+        if (Regex.IsMatch(description, "数值|范围|系数|倍率|概率|速度|number|range|multiplier|chance|probability|speed|factor", RegexOptions.IgnoreCase)) return CarpetRuleValueKind.Decimal;
+        return CarpetRuleValueKind.Boolean;
     }
 
     private void RenderCarpetRuleConfig(ModConfigDraft draft)
@@ -123,11 +140,43 @@ public partial class MainWindow
         var description = LocalizedCarpetRuleDescription(rule);
         if (!string.IsNullOrWhiteSpace(description)) text.Children.Add(new TextBlock { Text = description, Foreground = new SolidColorBrush(Color.FromRgb(166, 185, 203)), FontSize = 12, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 5, 12, 0), MaxHeight = 76 });
         Grid.SetColumn(text, 0); grid.Children.Add(text);
-        var editor = new ComboBox { IsEditable = true, ItemsSource = new[] { "", "true", "false" }, Text = rule.Value, ToolTip = "留空：使用 Mod 默认值；也可以输入数字、文本或规则支持的其他值。", VerticalAlignment = VerticalAlignment.Center };
-        editor.LostKeyboardFocus += (_, _) => { rule.Value = editor.Text.Trim(); MarkModConfigDraftChanged(); };
-        editor.SelectionChanged += (_, _) => { if (editor.SelectedItem is string value) { rule.Value = value; MarkModConfigDraftChanged(); } };
+        var editor = BuildCarpetRuleEditor(rule);
         Grid.SetColumn(editor, 1); grid.Children.Add(editor);
         return new Border { Background = new SolidColorBrush(Color.FromArgb(24, 255, 255, 255)), BorderBrush = new SolidColorBrush(Color.FromArgb(42, 255, 255, 255)), BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(10), Padding = new Thickness(12), Margin = new Thickness(0, 0, 0, 8), Child = grid };
+    }
+
+    private FrameworkElement BuildCarpetRuleEditor(CarpetRuleEntry rule)
+    {
+        const string inheritedHint = "留空表示使用 Mod 默认值";
+        if (rule.Kind == CarpetRuleValueKind.Boolean)
+        {
+            var check = new CheckBox { IsThreeState = true, IsChecked = rule.Value.Equals("true", StringComparison.OrdinalIgnoreCase) ? true : rule.Value.Equals("false", StringComparison.OrdinalIgnoreCase) ? false : null, VerticalAlignment = VerticalAlignment.Center, ToolTip = "点击循环：默认 / 开启 / 关闭" };
+            void UpdateLabel() => check.Content = check.IsChecked switch { true => "开启", false => "关闭", _ => "默认" };
+            check.Click += (_, _) => { rule.Value = check.IsChecked switch { true => "true", false => "false", _ => "" }; UpdateLabel(); MarkModConfigDraftChanged(); };
+            UpdateLabel(); return check;
+        }
+        if (rule.Kind is CarpetRuleValueKind.Integer or CarpetRuleValueKind.Decimal)
+        {
+            var box = new TextBox { Text = rule.Value, Height = 36, VerticalAlignment = VerticalAlignment.Center, ToolTip = inheritedHint + "；这里只接受" + (rule.Kind == CarpetRuleValueKind.Integer ? "整数" : "数值"), VerticalContentAlignment = VerticalAlignment.Center };
+            box.LostKeyboardFocus += (_, _) =>
+            {
+                var value = box.Text.Trim();
+                var valid = value.Length == 0 || (rule.Kind == CarpetRuleValueKind.Integer ? long.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out _) : double.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out _));
+                if (!valid) { box.Text = rule.Value; ShowToast("数值格式不正确", $"{LocalizedCarpetRuleName(rule)} 需要有效的{(rule.Kind == CarpetRuleValueKind.Integer ? "整数" : "数值")}。", false, 3200); return; }
+                rule.Value = value; MarkModConfigDraftChanged();
+            };
+            return box;
+        }
+        if (rule.Kind == CarpetRuleValueKind.Choice && rule.Suggestions.Count > 0)
+        {
+            var choices = new[] { "" }.Concat(rule.Suggestions).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+            var combo = new ComboBox { IsEditable = false, ItemsSource = choices, SelectedItem = choices.FirstOrDefault(value => value.Equals(rule.Value, StringComparison.OrdinalIgnoreCase)) ?? "", ToolTip = inheritedHint };
+            combo.SelectionChanged += (_, _) => { if (combo.SelectedItem is string value) { rule.Value = value; MarkModConfigDraftChanged(); } };
+            return combo;
+        }
+        var text = new TextBox { Text = rule.Value, Height = 36, VerticalAlignment = VerticalAlignment.Center, ToolTip = inheritedHint, VerticalContentAlignment = VerticalAlignment.Center };
+        text.LostKeyboardFocus += (_, _) => { rule.Value = text.Text.Trim(); MarkModConfigDraftChanged(); };
+        return text;
     }
 
     private string LocalizedCarpetRuleName(CarpetRuleEntry rule) => FormatLocalizedLabel(rule.ChineseName, rule.EnglishName, rule.Name);
