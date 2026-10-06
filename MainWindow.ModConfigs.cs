@@ -37,6 +37,19 @@ public partial class MainWindow
     }
 
     private sealed record DiscoveredBooleanOption(string Category, string Key);
+    private sealed class ModConfigProfileManifest
+    {
+        public int FormatVersion { get; set; } = 1;
+        public string MinecraftVersion { get; set; } = "";
+        public string Loader { get; set; } = "";
+        public Dictionary<string, ModConfigProfileMod> Mods { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+    }
+    private sealed class ModConfigProfileMod
+    {
+        public string ModId { get; set; } = "";
+        public string ModVersion { get; set; } = "";
+        public string Loader { get; set; } = "";
+    }
     private sealed record LocalizedConfigChoice(string Value, string Label)
     {
         public override string ToString() => Label;
@@ -923,8 +936,12 @@ public partial class MainWindow
         try
         {
             var root = Path.Combine(ModConfigProfilesRoot, SafeProfileName(settings.ActiveModConfigProfile)); Directory.CreateDirectory(root);
+            var environment = DetectInstanceEnvironment();
+            var manifest = new ModConfigProfileManifest { MinecraftVersion = environment.Version, Loader = environment.Loader };
             foreach (var draft in modConfigDrafts)
             {
+                var installedMod = FindInstalledMod(draft.Definition);
+                manifest.Mods[draft.Definition.Id] = new ModConfigProfileMod { ModId = installedMod?.Id ?? draft.Definition.Id, ModVersion = installedMod?.Version ?? "", Loader = environment.Loader };
                 var destination = Path.Combine(root, draft.Definition.Id);
                 if (Directory.Exists(destination)) { MakeTreeWritable(destination); Directory.Delete(destination, true); }
                 Directory.CreateDirectory(destination);
@@ -952,6 +969,7 @@ public partial class MainWindow
                 var primary = draft.Definition.PrimaryJson.Length > 0 ? Path.Combine(destination, draft.Definition.PrimaryJson) : Path.Combine(destination, Path.GetFileName(draft.SourcePath));
                 if (draft.Json != null) WriteDraftJson(draft, primary);
             }
+            File.WriteAllText(Path.Combine(root, "profile-manifest.json"), JsonSerializer.Serialize(manifest, new JsonSerializerOptions { WriteIndented = true }));
             SettingsStore.Save(settings); RefreshModConfigProfiles(); modConfigProfileDirty = false; StatusText.Text = $"已保存 Mod 配置：{settings.ActiveModConfigProfile}";
         }
         catch (Exception ex)
@@ -1033,10 +1051,21 @@ public partial class MainWindow
         if (string.IsNullOrWhiteSpace(instance)) return;
         try
         {
-            var profileRoot = Path.Combine(ModConfigProfilesRoot, SafeProfileName(settings.ActiveModConfigProfile)); var applied = 0;
+            EnsureMinecraftClientClosedBeforeApplying();
+            var profileRoot = Path.Combine(ModConfigProfilesRoot, SafeProfileName(settings.ActiveModConfigProfile)); var applied = 0; var merged = 0; var skipped = 0;
+            var manifest = ReadModConfigManifest(profileRoot);
+            var targetEnvironment = DetectInstanceEnvironment();
             foreach (var draft in drafts)
             {
                 var source = Path.Combine(profileRoot, draft.Definition.Id); if (!Directory.Exists(source) || !draft.IsDetected) continue;
+                var installedMod = FindInstalledMod(draft.Definition);
+                if (installedMod == null && draft.CarpetRules == null) { skipped++; continue; }
+                ModConfigProfileMod? sourceMod = null;
+                manifest?.Mods.TryGetValue(draft.Definition.Id, out sourceMod);
+                var exactModId = sourceMod != null && DefinitionMatchesInstalled(sourceMod.ModId, installedMod);
+                var exactModVersion = sourceMod != null && !string.IsNullOrWhiteSpace(sourceMod.ModVersion) && sourceMod.ModVersion.Equals(installedMod?.Version, StringComparison.OrdinalIgnoreCase);
+                var exactLoader = sourceMod != null && !string.IsNullOrWhiteSpace(sourceMod.Loader) && sourceMod.Loader.Equals(targetEnvironment.Loader, StringComparison.OrdinalIgnoreCase);
+                var exactCompatibility = exactModId && exactModVersion && exactLoader;
                 if (draft.CarpetRules != null)
                 {
                     var profileFile = Path.Combine(source, "carpet-rules.json");
@@ -1051,21 +1080,113 @@ public partial class MainWindow
                     var filesRoot = Path.Combine(source, "files"); if (!Directory.Exists(filesRoot)) continue;
                     foreach (var profileFile in Directory.EnumerateFiles(filesRoot, "*", SearchOption.AllDirectories))
                     {
-                        var target = Path.Combine(instance, "config", Path.GetRelativePath(filesRoot, profileFile)); BackupModConfig(target); Directory.CreateDirectory(Path.GetDirectoryName(target)!); MakeFileWritable(target); File.Copy(profileFile, target, true);
+                        var target = Path.Combine(instance, "config", Path.GetRelativePath(filesRoot, profileFile));
+                        if (TryApplyVersionAwareConfigFile(profileFile, target, exactCompatibility, out var wasMerged)) { if (wasMerged) merged++; }
+                        else skipped++;
                     }
                     applied++; continue;
                 }
-                if (Directory.Exists(draft.SourcePath)) { BackupModConfig(draft.SourcePath); MakeTreeWritable(draft.SourcePath); CopyDirectory(source, draft.SourcePath); }
-                else { var profileFile = Path.Combine(source, Path.GetFileName(draft.SourcePath)); if (!File.Exists(profileFile)) continue; BackupModConfig(draft.SourcePath); Directory.CreateDirectory(Path.GetDirectoryName(draft.SourcePath)!); MakeFileWritable(draft.SourcePath); File.Copy(profileFile, draft.SourcePath, true); }
+                if (Directory.Exists(draft.SourcePath))
+                {
+                    foreach (var profileFile in Directory.EnumerateFiles(source, "*", SearchOption.AllDirectories))
+                    {
+                        if (Path.GetFileName(profileFile).Equals("profile-manifest.json", StringComparison.OrdinalIgnoreCase)) continue;
+                        var target = Path.Combine(draft.SourcePath, Path.GetRelativePath(source, profileFile));
+                        if (TryApplyVersionAwareConfigFile(profileFile, target, exactCompatibility, out var wasMerged)) { if (wasMerged) merged++; }
+                        else skipped++;
+                    }
+                }
+                else
+                {
+                    var profileFile = Path.Combine(source, Path.GetFileName(draft.SourcePath)); if (!File.Exists(profileFile)) continue;
+                    if (!TryApplyVersionAwareConfigFile(profileFile, draft.SourcePath, exactCompatibility, out var wasMerged)) { skipped++; continue; }
+                    if (wasMerged) merged++;
+                }
                 applied++;
             }
-            StatusText.Text = $"已覆盖 {applied} 个已安装 Mod 的独立配置"; ShowToast("Mod 配置已覆盖", $"共 {applied} 个 Mod。", true, 2800);
+            StatusText.Text = $"已适配 {applied} 个 Mod 配置；字段合并 {merged} 个文件，跳过 {skipped} 个不兼容文件";
+            ShowToast("Mod 配置已适配", skipped == 0 ? $"共 {applied} 个 Mod。" : $"{applied} 个 Mod，跳过 {skipped} 个不兼容文件。", true, 3600);
         }
         catch (Exception ex)
         {
             StatusText.Text = "应用 Mod 配置失败";
             ShowToast("Mod 配置覆盖失败", ex.Message, false, 5200);
         }
+    }
+
+    private ModInfo? FindInstalledMod(ModConfigDefinition definition) =>
+        mods.Values.FirstOrDefault(mod => ModIdMatches(definition.Id, mod.Id)) ??
+        mods.Values.FirstOrDefault(mod => definition.Aliases.Any(alias => ModIdMatches(alias, mod.Id)));
+    private static bool DefinitionMatchesInstalled(string sourceModId, ModInfo? installedMod) => installedMod != null && ModIdMatches(sourceModId, installedMod.Id);
+
+    private static ModConfigProfileManifest? ReadModConfigManifest(string profileRoot)
+    {
+        try
+        {
+            var path = Path.Combine(profileRoot, "profile-manifest.json");
+            return File.Exists(path) ? JsonSerializer.Deserialize<ModConfigProfileManifest>(File.ReadAllText(path)) : null;
+        }
+        catch { return null; }
+    }
+
+    private static bool TryApplyVersionAwareConfigFile(string profileFile, string target, bool exactBinaryCompatibility, out bool merged)
+    {
+        merged = false;
+        var extension = Path.GetExtension(profileFile);
+        if (extension.Equals(".json", StringComparison.OrdinalIgnoreCase) && TryReadJsonObject(profileFile, out var sourceJson) && sourceJson != null)
+        {
+            JsonObject output;
+            if (File.Exists(target) && TryReadJsonObject(target, out var targetJson) && targetJson != null)
+            {
+                var sparseTarget = CountJsonLeaves(targetJson) <= 3;
+                output = (JsonObject)targetJson.DeepClone();
+                MergeCompatibleJson(output, sourceJson, sparseTarget);
+                merged = true;
+            }
+            else if (exactBinaryCompatibility) output = (JsonObject)sourceJson.DeepClone();
+            else return false;
+            BackupModConfig(target); Directory.CreateDirectory(Path.GetDirectoryName(target)!); MakeFileWritable(target);
+            File.WriteAllText(target, output.ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
+            return true;
+        }
+        if (!exactBinaryCompatibility) return false;
+        BackupModConfig(target); Directory.CreateDirectory(Path.GetDirectoryName(target)!); MakeFileWritable(target); File.Copy(profileFile, target, true); return true;
+    }
+
+    private static int CountJsonLeaves(JsonNode? node)
+    {
+        if (node is JsonValue) return 1;
+        if (node is JsonArray array) return array.Sum(CountJsonLeaves);
+        return node is JsonObject obj ? obj.Sum(item => CountJsonLeaves(item.Value)) : 0;
+    }
+
+    private static void MergeCompatibleJson(JsonObject target, JsonObject source, bool allowMissing)
+    {
+        foreach (var item in source)
+        {
+            if (!target.TryGetPropertyValue(item.Key, out var targetValue))
+            {
+                if (allowMissing) target[item.Key] = item.Value?.DeepClone();
+                continue;
+            }
+            if (targetValue is JsonObject targetObject && item.Value is JsonObject sourceObject) { MergeCompatibleJson(targetObject, sourceObject, allowMissing); continue; }
+            if (AreJsonValueKindsCompatible(targetValue, item.Value)) target[item.Key] = item.Value?.DeepClone();
+        }
+    }
+
+    private static bool AreJsonValueKindsCompatible(JsonNode? target, JsonNode? source)
+    {
+        if (target == null || source == null) return target == null && source == null;
+        if (target is JsonArray && source is JsonArray) return true;
+        if (target is JsonObject || source is JsonObject) return false;
+        try
+        {
+            using var targetDocument = JsonDocument.Parse(target.ToJsonString()); using var sourceDocument = JsonDocument.Parse(source.ToJsonString());
+            var left = targetDocument.RootElement.ValueKind; var right = sourceDocument.RootElement.ValueKind;
+            if (left == JsonValueKind.Number && right == JsonValueKind.Number) return true;
+            return left == right;
+        }
+        catch { return false; }
     }
 
     private static void BackupModConfig(string path)

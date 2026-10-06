@@ -143,6 +143,8 @@ public class KeyProfile
 public class ModInfo
 {
     public string Id { get; set; } = "";
+    public string Version { get; set; } = "";
+    public string Loader { get; set; } = "";
     public string JarPath { get; set; } = "";
     public string EnglishName { get; set; } = "";
     public string ChineseName { get; set; } = "";

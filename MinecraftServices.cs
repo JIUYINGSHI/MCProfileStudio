@@ -31,16 +31,18 @@ public static class MinecraftConfig
         {
             try
             {
-                using var zip = ZipFile.OpenRead(jar); string id = "", name = ""; var dependencies = new List<string>();
+                using var zip = ZipFile.OpenRead(jar); string id = "", name = "", version = "", loader = ""; var dependencies = new List<string>();
                 var fabric = zip.GetEntry("fabric.mod.json");
-                if (fabric != null) { using var doc = JsonDocument.Parse(fabric.Open()); id = Text(doc.RootElement, "id"); name = Text(doc.RootElement, "name"); if (doc.RootElement.TryGetProperty("depends", out var deps) && deps.ValueKind == JsonValueKind.Object) dependencies.AddRange(deps.EnumerateObject().Select(x => x.Name)); }
+                if (fabric != null) { loader = "Fabric"; using var doc = JsonDocument.Parse(fabric.Open()); id = Text(doc.RootElement, "id"); name = Text(doc.RootElement, "name"); version = Text(doc.RootElement, "version"); if (doc.RootElement.TryGetProperty("depends", out var deps) && deps.ValueKind == JsonValueKind.Object) dependencies.AddRange(deps.EnumerateObject().Select(x => x.Name)); }
                 var quilt = zip.GetEntry("quilt.mod.json");
-                if (quilt != null) { using var doc = JsonDocument.Parse(quilt.Open()); if (doc.RootElement.TryGetProperty("quilt_loader", out var q)) { id = Text(q, "id"); if (q.TryGetProperty("metadata", out var md)) name = Text(md, "name"); if (q.TryGetProperty("depends", out var deps) && deps.ValueKind == JsonValueKind.Array) foreach (var d in deps.EnumerateArray()) if (d.TryGetProperty("id", out var di)) dependencies.Add(di.GetString() ?? ""); } }
-                var toml = zip.GetEntry("META-INF/mods.toml") ?? zip.GetEntry("META-INF/neoforge.mods.toml");
-                if (toml != null) { using var sr = new StreamReader(toml.Open()); var raw = sr.ReadToEnd(); id = Regex.Match(raw, "modId\\s*=\\s*\"([^\"]+)\"").Groups[1].Value; name = Regex.Match(raw, "displayName\\s*=\\s*\"([^\"]+)\"").Groups[1].Value; dependencies.AddRange(Regex.Matches(raw, "modId\\s*=\\s*\"([^\"]+)\"").Skip(1).Select(m => m.Groups[1].Value)); }
+                if (quilt != null) { loader = "Quilt"; using var doc = JsonDocument.Parse(quilt.Open()); if (doc.RootElement.TryGetProperty("quilt_loader", out var q)) { id = Text(q, "id"); version = Text(q, "version"); if (q.TryGetProperty("metadata", out var md)) name = Text(md, "name"); if (q.TryGetProperty("depends", out var deps) && deps.ValueKind == JsonValueKind.Array) foreach (var d in deps.EnumerateArray()) if (d.TryGetProperty("id", out var di)) dependencies.Add(di.GetString() ?? ""); } }
+                var neoToml = zip.GetEntry("META-INF/neoforge.mods.toml");
+                var forgeToml = zip.GetEntry("META-INF/mods.toml");
+                var toml = neoToml ?? forgeToml;
+                if (toml != null) { loader = neoToml != null ? "NeoForge" : "Forge"; using var sr = new StreamReader(toml.Open()); var raw = sr.ReadToEnd(); id = Regex.Match(raw, "modId\\s*=\\s*\"([^\"]+)\"").Groups[1].Value; name = Regex.Match(raw, "displayName\\s*=\\s*\"([^\"]+)\"").Groups[1].Value; version = Regex.Match(raw, "(?m)^\\s*version\\s*=\\s*\"([^\"]+)\"").Groups[1].Value; dependencies.AddRange(Regex.Matches(raw, "modId\\s*=\\s*\"([^\"]+)\"").Skip(1).Select(m => m.Groups[1].Value)); }
                 if (string.IsNullOrWhiteSpace(id)) id = Regex.Replace(Path.GetFileNameWithoutExtension(jar), @"[-_]?\d.*$", "").ToLowerInvariant();
                 if (string.IsNullOrWhiteSpace(name)) name = id.Replace('_', ' ');
-                var info = new ModInfo { Id = id, EnglishName = name, JarPath = jar };
+                var info = new ModInfo { Id = id, Version = NormalizeDescriptorVersion(version, jar, ReadManifestVersion(zip)), Loader = loader, EnglishName = name, JarPath = jar };
                 LoadLang(zip, info, "en_us", info.EnglishTranslations); LoadLang(zip, info, "zh_cn", info.ChineseTranslations);
                 info.ChineseName = ResolveChineseModName(info);
                 result[id] = info; foreach (var dep in dependencies) if (!IsLoader(dep)) dependencyIds.Add(dep);
@@ -52,6 +54,30 @@ public static class MinecraftConfig
     }
 
     private static string Text(JsonElement element, string name) => element.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.String ? value.GetString() ?? "" : "";
+    private static string ReadManifestVersion(ZipArchive zip)
+    {
+        try
+        {
+            var entry = zip.GetEntry("META-INF/MANIFEST.MF"); if (entry == null) return "";
+            using var reader = new StreamReader(entry.Open());
+            foreach (var raw in reader.ReadToEnd().Replace("\r\n ", "").Split('\n'))
+            {
+                var line = raw.Trim();
+                foreach (var key in new[] { "Implementation-Version:", "Specification-Version:" })
+                    if (line.StartsWith(key, StringComparison.OrdinalIgnoreCase)) return line[key.Length..].Trim();
+            }
+        }
+        catch { }
+        return "";
+    }
+
+    private static string NormalizeDescriptorVersion(string version, string jar, string manifestVersion)
+    {
+        if (!string.IsNullOrWhiteSpace(version) && !version.Contains("${", StringComparison.Ordinal)) return version.Trim();
+        if (!string.IsNullOrWhiteSpace(manifestVersion) && !manifestVersion.Contains("${", StringComparison.Ordinal)) return manifestVersion.Trim();
+        var matches = Regex.Matches(Path.GetFileNameWithoutExtension(jar), @"(?<!\d)(\d+\.\d+(?:\.\d+)*(?:[-+][0-9A-Za-z.-]+)?)(?!\d)");
+        return matches.Count > 0 ? matches[^1].Groups[1].Value : "";
+    }
     private static bool IsLoader(string id) => new[] { "minecraft", "java", "fabricloader", "fabric-api", "forge", "neoforge", "quilt_loader" }.Contains(id, StringComparer.OrdinalIgnoreCase);
     private static void LoadLang(ZipArchive zip, ModInfo info, string locale, Dictionary<string, string> target)
     {
