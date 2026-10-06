@@ -1081,7 +1081,7 @@ public partial class MainWindow
                     foreach (var profileFile in Directory.EnumerateFiles(filesRoot, "*", SearchOption.AllDirectories))
                     {
                         var target = Path.Combine(instance, "config", Path.GetRelativePath(filesRoot, profileFile));
-                        if (TryApplyVersionAwareConfigFile(profileFile, target, exactCompatibility, out var wasMerged)) { if (wasMerged) merged++; }
+                        if (TryApplyVersionAwareConfigFile(profileFile, target, exactCompatibility, draft.Definition.Id, installedMod, out var wasMerged)) { if (wasMerged) merged++; }
                         else skipped++;
                     }
                     applied++; continue;
@@ -1092,14 +1092,14 @@ public partial class MainWindow
                     {
                         if (Path.GetFileName(profileFile).Equals("profile-manifest.json", StringComparison.OrdinalIgnoreCase)) continue;
                         var target = Path.Combine(draft.SourcePath, Path.GetRelativePath(source, profileFile));
-                        if (TryApplyVersionAwareConfigFile(profileFile, target, exactCompatibility, out var wasMerged)) { if (wasMerged) merged++; }
+                        if (TryApplyVersionAwareConfigFile(profileFile, target, exactCompatibility, draft.Definition.Id, installedMod, out var wasMerged)) { if (wasMerged) merged++; }
                         else skipped++;
                     }
                 }
                 else
                 {
                     var profileFile = Path.Combine(source, Path.GetFileName(draft.SourcePath)); if (!File.Exists(profileFile)) continue;
-                    if (!TryApplyVersionAwareConfigFile(profileFile, draft.SourcePath, exactCompatibility, out var wasMerged)) { skipped++; continue; }
+                    if (!TryApplyVersionAwareConfigFile(profileFile, draft.SourcePath, exactCompatibility, draft.Definition.Id, installedMod, out var wasMerged)) { skipped++; continue; }
                     if (wasMerged) merged++;
                 }
                 applied++;
@@ -1129,18 +1129,20 @@ public partial class MainWindow
         catch { return null; }
     }
 
-    private static bool TryApplyVersionAwareConfigFile(string profileFile, string target, bool exactBinaryCompatibility, out bool merged)
+    private static bool TryApplyVersionAwareConfigFile(string profileFile, string target, bool exactBinaryCompatibility, string modId, ModInfo? installedMod, out bool merged)
     {
         merged = false;
         var extension = Path.GetExtension(profileFile);
         if (extension.Equals(".json", StringComparison.OrdinalIgnoreCase) && TryReadJsonObject(profileFile, out var sourceJson) && sourceJson != null)
         {
             JsonObject output;
+            var schemaValidated = TryAdaptConfigForTarget(modId, installedMod, sourceJson, out var adaptedSource);
+            sourceJson = adaptedSource;
             if (File.Exists(target) && TryReadJsonObject(target, out var targetJson) && targetJson != null)
             {
                 var sparseTarget = CountJsonLeaves(targetJson) <= 3;
                 output = (JsonObject)targetJson.DeepClone();
-                MergeCompatibleJson(output, sourceJson, sparseTarget);
+                MergeCompatibleJson(output, sourceJson, sparseTarget || schemaValidated);
                 merged = true;
             }
             else if (exactBinaryCompatibility) output = (JsonObject)sourceJson.DeepClone();
@@ -1152,6 +1154,52 @@ public partial class MainWindow
         if (!exactBinaryCompatibility) return false;
         BackupModConfig(target); Directory.CreateDirectory(Path.GetDirectoryName(target)!); MakeFileWritable(target); File.Copy(profileFile, target, true); return true;
     }
+
+    private static bool TryAdaptConfigForTarget(string modId, ModInfo? installedMod, JsonObject source, out JsonObject adapted)
+    {
+        adapted = (JsonObject)source.DeepClone();
+        if (!modId.Equals("inventoryprofilesnext", StringComparison.OrdinalIgnoreCase) || installedMod == null || !File.Exists(installedMod.JarPath)) return false;
+        var schema = ReadInventoryProfilesSchema(installedMod.JarPath);
+        if (schema.Count == 0) return false;
+        var values = new Dictionary<string, JsonNode?>(StringComparer.OrdinalIgnoreCase);
+        foreach (var category in source.Where(item => item.Value is JsonObject))
+            foreach (var option in ((JsonObject)category.Value!).Where(item => !IsConfigMetadataKey(item.Key))) values[NormalizeSemanticOptionName(option.Key)] = option.Value?.DeepClone();
+        var rebuilt = new JsonObject();
+        foreach (var item in values)
+        {
+            if (!schema.TryGetValue(item.Key, out var targetCategory)) continue;
+            var category = rebuilt[targetCategory] as JsonObject ?? new JsonObject(); rebuilt[targetCategory] = category;
+            category[item.Key] = item.Value?.DeepClone();
+        }
+        adapted = rebuilt;
+        return true;
+    }
+
+    private static Dictionary<string, string> ReadInventoryProfilesSchema(string jarPath)
+    {
+        var result = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        var categories = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Features", "ModSettings", "GuiSettings", "LockedSlotsSettings", "AutoRefillSettings", "EditProfiles", "Hotkeys", "ScrollSettings", "Tweaks" };
+        try
+        {
+            using var archive = ZipFile.OpenRead(jarPath);
+            foreach (var entry in archive.Entries.Where(entry => entry.FullName.StartsWith("org/anti_ad/mc/ipnext/config/", StringComparison.Ordinal) && entry.FullName.EndsWith(".class", StringComparison.OrdinalIgnoreCase)))
+            {
+                var category = Path.GetFileNameWithoutExtension(entry.Name); if (!categories.Contains(category) || category.Contains('$')) continue;
+                using var stream = entry.Open(); using var memory = new MemoryStream(); stream.CopyTo(memory);
+                var constants = Encoding.Latin1.GetString(memory.ToArray());
+                foreach (Match match in Regex.Matches(constants, @"get([A-Z][A-Z0-9_]{2,})"))
+                {
+                    var option = NormalizeSemanticOptionName(match.Groups[1].Value);
+                    if (option.Length > 2) result[option] = category;
+                }
+            }
+        }
+        catch { }
+        return result;
+    }
+
+    private static string NormalizeSemanticOptionName(string value) => value.Trim().ToLowerInvariant();
+    private static bool IsConfigMetadataKey(string key) => key.StartsWith('_') || key.Equals("version", StringComparison.OrdinalIgnoreCase);
 
     private static int CountJsonLeaves(JsonNode? node)
     {
