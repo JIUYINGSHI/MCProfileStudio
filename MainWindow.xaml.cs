@@ -271,7 +271,7 @@ public partial class MainWindow : Window
     private void ImportShaderOptions_Click(object? sender, RoutedEventArgs e)
     {
         var file = PickOptionsFile("光影选择"); if (file == null) return; var shader = MinecraftConfig.ReadShaderSelection(Path.GetDirectoryName(file) ?? "");
-        if (string.IsNullOrWhiteSpace(shader)) { AppDialog.Show(this, "没有在 options.txt 同目录的 Iris 或 OptiFine 配置中找到光影选择。", "无法导入", MessageBoxButton.OK, MessageBoxImage.Warning); return; }
+        if (string.IsNullOrWhiteSpace(shader)) { AppDialog.Show(this, "没有在 options.txt 同目录的 Iris、Oculus 或 OptiFine 配置中找到光影选择。", "无法导入", MessageBoxButton.OK, MessageBoxImage.Warning); return; }
         draftSelectedShader = shader; ShaderList.SelectedItem = shaders.FirstOrDefault(item => item.Name.Equals(shader, StringComparison.OrdinalIgnoreCase)); SelectedShaderName.Text = shader;
         StatusText.Text = $"已导入光影选择：{shader}（尚未保存）";
     }
@@ -308,7 +308,7 @@ public partial class MainWindow : Window
     {
         var dialog = AppDialog.CreateWindow(this, "选择导入内容", 430, 358, false);
         var root = new StackPanel { Margin = new Thickness(24) }; root.Children.Add(new TextBlock { Text = "从 options.txt 获取哪些内容？", FontSize = 20, FontWeight = FontWeights.SemiBold }); root.Children.Add(new TextBlock { Text = "导入结果只进入当前草稿，不会自动保存配置。", Foreground = new SolidColorBrush(Color.FromRgb(174, 190, 207)), Margin = new Thickness(0, 6, 0, 14) });
-        var packsBox = new CheckBox { Content = "资源包启用状态与排序", IsChecked = true }; var shaderBox = new CheckBox { Content = "光影包选择（同时检查同目录 Iris / OptiFine 配置）", IsChecked = true }; var keysBox = new CheckBox { Content = "全部键位配置", IsChecked = true }; root.Children.Add(packsBox); root.Children.Add(shaderBox); root.Children.Add(keysBox);
+        var packsBox = new CheckBox { Content = "资源包启用状态与排序", IsChecked = true }; var shaderBox = new CheckBox { Content = "光影包选择（检查同目录 Iris / Oculus / OptiFine 配置）", IsChecked = true }; var keysBox = new CheckBox { Content = "全部键位配置", IsChecked = true }; root.Children.Add(packsBox); root.Children.Add(shaderBox); root.Children.Add(keysBox);
         var buttons = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 20, 0, 0) }; var cancel = new Button { Content = "取消", Width = 90, Background = new SolidColorBrush(Color.FromRgb(58, 58, 58)), Margin = new Thickness(0, 0, 8, 0) }; cancel.Click += (_, _) => dialog.DialogResult = false; var ok = new Button { Content = "导入", Width = 100 }; ok.Click += (_, _) => dialog.DialogResult = true; buttons.Children.Add(cancel); buttons.Children.Add(ok); root.Children.Add(buttons); AppDialog.SetBody(dialog, root);
         return dialog.ShowDialog() == true ? (packsBox.IsChecked == true, shaderBox.IsChecked == true, keysBox.IsChecked == true) : null;
     }
@@ -861,6 +861,7 @@ public partial class MainWindow : Window
         if (string.IsNullOrWhiteSpace(instance)) { ShowToast("无法覆盖", "请先选择实例。", false, 4200); return; }
         try
         {
+            EnsureMinecraftClientClosedBeforeApplying();
             var applied = activePageIndex switch
             {
                 1 => ApplyResourcePacksOnly(),
@@ -878,17 +879,50 @@ public partial class MainWindow : Window
             ShowToast("覆盖失败", ex.Message, false, 5200);
         }
     }
+    private void EnsureMinecraftClientClosedBeforeApplying()
+    {
+        var latestLog = Path.Combine(instance, "logs", "latest.log");
+        if (File.Exists(latestLog))
+        {
+            try
+            {
+                using var stream = new FileStream(latestLog, FileMode.Open, FileAccess.ReadWrite, FileShare.None);
+            }
+            catch (IOException)
+            {
+                throw new InvalidOperationException("当前实例仍在运行。请先完全退出游戏，再覆盖配置，否则游戏退出时会把资源包和键位恢复成旧值。");
+            }
+            catch (UnauthorizedAccessException)
+            {
+                throw new InvalidOperationException("无法确认当前实例是否已关闭。请完全退出游戏后重试。");
+            }
+        }
+        foreach (var processName in new[] { "java", "javaw" })
+        {
+            foreach (var process in System.Diagnostics.Process.GetProcessesByName(processName))
+            {
+                using (process)
+                {
+                    var isMinecraftWindow = false;
+                    try { isMinecraftWindow = process.MainWindowHandle != IntPtr.Zero && process.MainWindowTitle.Contains("Minecraft", StringComparison.OrdinalIgnoreCase); }
+                    catch { }
+                    if (isMinecraftWindow) throw new InvalidOperationException("检测到 Minecraft 客户端窗口仍在运行。请关闭游戏后再覆盖配置。");
+                }
+            }
+        }
+    }
     private string ApplyResourcePacksOnly() { MinecraftConfig.MirrorLibrary(settings.PackLibrary, Path.Combine(instance, "resourcepacks")); MinecraftConfig.PatchOptions(instance, new Dictionary<string, string>(StringComparer.Ordinal) { ["resourcePacks"] = MinecraftConfig.ResourcePackValue(packs) }); return "资源包"; }
     private string ApplyShadersOnly()
     {
         if (string.IsNullOrWhiteSpace(draftSelectedShader)) throw new InvalidOperationException("当前没有选择要应用的光影包。");
-        if (!MinecraftConfig.DetectModIds(instance).Contains("iris")) throw new InvalidOperationException("当前实例未检测到 Iris，无法应用光影设置。");
+        var shaderMod = DetectInstalledShaderMod();
         MinecraftConfig.MirrorLibrary(settings.ShaderLibrary, Path.Combine(instance, "shaderpacks"));
         var targetShader = Path.Combine(instance, "shaderpacks", draftSelectedShader);
         if (!File.Exists(targetShader) && !Directory.Exists(targetShader)) throw new FileNotFoundException("光影包未能复制到当前实例。", draftSelectedShader);
-        ApplyShaderSelection();
-        var appliedShader = MinecraftConfig.ReadShaderSelection(instance);
-        if (!string.Equals(appliedShader, draftSelectedShader, StringComparison.Ordinal)) throw new IOException("Iris 设置写入后校验失败。");
+        ApplyShaderSelection(shaderMod);
+        var configFile = Path.Combine(instance, "config", shaderMod + ".properties");
+        var appliedShader = MinecraftConfig.ReadJavaProperty(configFile, "shaderPack");
+        if (!string.Equals(appliedShader, draftSelectedShader, StringComparison.Ordinal)) throw new IOException($"{ShaderModDisplayName(shaderMod)} 设置写入后校验失败。");
         return "光影";
     }
     private string ApplyKeysOnly()
@@ -899,13 +933,32 @@ public partial class MainWindow : Window
         if (changes.Count == 0) throw new InvalidOperationException("当前没有可写入的键位配置。");
         MinecraftConfig.PatchOptions(instance, changes); return "键位";
     }
-    private void ApplyShaderSelection()
+    private string DetectInstalledShaderMod()
     {
-        var iris = Path.Combine(instance, "config", "iris.properties");
-        MinecraftConfig.PatchJavaProperty(iris, "shaderPack", draftSelectedShader, true);
-        MinecraftConfig.PatchJavaProperty(iris, "enableShaders", "true", true);
-        var optiFine = Path.Combine(instance, "optionsof.txt");
-        if (File.Exists(optiFine)) MinecraftConfig.PatchJavaProperty(optiFine, "ofShaderPack", draftSelectedShader);
+        var ids = MinecraftConfig.DetectModIds(instance);
+        var hasIris = ids.Contains("iris");
+        var hasOculus = ids.Contains("oculus");
+        if (hasIris && hasOculus) throw new InvalidOperationException("当前实例同时检测到 Iris 与 Oculus，两者不应同时安装，请先移除其中一个。");
+        var loader = DetectInstanceEnvironment().Loader;
+        if (hasIris)
+        {
+            if (loader.Equals("Forge", StringComparison.OrdinalIgnoreCase)) throw new InvalidOperationException("Forge 实例检测到了 Iris，请改用 Oculus。");
+            return "iris";
+        }
+        if (hasOculus)
+        {
+            if (loader is "Fabric" or "Quilt") throw new InvalidOperationException($"{loader} 实例检测到了 Oculus，请改用 Iris。");
+            return "oculus";
+        }
+        var expected = loader.Equals("Forge", StringComparison.OrdinalIgnoreCase) ? "Oculus" : loader.Equals("NeoForge", StringComparison.OrdinalIgnoreCase) ? "Iris 或 Oculus" : "Iris";
+        throw new InvalidOperationException($"当前 {loader} 实例未检测到 {expected}，无法应用光影设置。");
+    }
+    private static string ShaderModDisplayName(string shaderMod) => shaderMod.Equals("oculus", StringComparison.OrdinalIgnoreCase) ? "Oculus" : "Iris";
+    private void ApplyShaderSelection(string shaderMod)
+    {
+        var config = Path.Combine(instance, "config", shaderMod + ".properties");
+        MinecraftConfig.PatchJavaProperty(config, "shaderPack", draftSelectedShader, true);
+        MinecraftConfig.PatchJavaProperty(config, "enableShaders", "true", true);
     }
     private void RefreshSummary() { PackCount.Text = packs.Count.ToString(); ModCount.Text = allKeys.Select(k => k.ModId).Distinct().Count().ToString(); var conflicts = allKeys.Where(k => k.CountsAsConflict && !k.Value.EndsWith("unknown")).GroupBy(k => k.Value).Count(g => g.Count() > 1); KeyCount.Text = $"{allKeys.Count} / {conflicts}"; LibrarySummary.Text = $"资源包：{(settings.PackLibrary.Length == 0 ? "未设置" : settings.PackLibrary)}\n光影包：{(settings.ShaderLibrary.Length == 0 ? "未设置" : settings.ShaderLibrary)}"; }
 

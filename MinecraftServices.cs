@@ -132,11 +132,33 @@ public static class MinecraftConfig
     }
     public static string ReadShaderSelection(string directory)
     {
-        foreach (var pair in new[] { (Path.Combine(directory, "config", "iris.properties"), "shaderPack"), (Path.Combine(directory, "optionsof.txt"), "ofShaderPack") })
+        var modIds = DetectModIds(directory);
+        var hasIris = modIds.Contains("iris");
+        var hasOculus = modIds.Contains("oculus");
+        var candidates = hasIris && !hasOculus
+            ? new[] { (Path.Combine(directory, "config", "iris.properties"), "shaderPack") }
+            : hasOculus && !hasIris
+                ? new[] { (Path.Combine(directory, "config", "oculus.properties"), "shaderPack") }
+                : !hasIris && !hasOculus
+                    ? new[]
+                    {
+                        (Path.Combine(directory, "config", "iris.properties"), "shaderPack"),
+                        (Path.Combine(directory, "config", "oculus.properties"), "shaderPack"),
+                        (Path.Combine(directory, "optionsof.txt"), "ofShaderPack")
+                    }
+                    : [];
+        foreach (var pair in candidates)
         {
-            if (!File.Exists(pair.Item1)) continue; var line = File.ReadLines(pair.Item1).FirstOrDefault(x => x.StartsWith(pair.Item2 + "=", StringComparison.Ordinal)); if (line != null) return DecodeJavaPropertyValue(line[(line.IndexOf('=') + 1)..].Trim());
+            var value = ReadJavaProperty(pair.Item1, pair.Item2);
+            if (!string.IsNullOrWhiteSpace(value)) return value;
         }
         return "";
+    }
+    public static string ReadJavaProperty(string file, string key)
+    {
+        if (!File.Exists(file)) return "";
+        var line = File.ReadLines(file).FirstOrDefault(value => value.StartsWith(key + "=", StringComparison.Ordinal));
+        return line == null ? "" : DecodeJavaPropertyValue(line[(line.IndexOf('=') + 1)..].Trim());
     }
     public static string EncodeJavaPropertyValue(string value)
     {

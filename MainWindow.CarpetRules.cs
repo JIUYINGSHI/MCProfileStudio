@@ -157,7 +157,7 @@ public partial class MainWindow
         }
         if (rule.Kind is CarpetRuleValueKind.Integer or CarpetRuleValueKind.Decimal)
         {
-            var box = new TextBox { Text = rule.Value, Height = 36, VerticalAlignment = VerticalAlignment.Center, ToolTip = inheritedHint + "；这里只接受" + (rule.Kind == CarpetRuleValueKind.Integer ? "整数" : "数值"), VerticalContentAlignment = VerticalAlignment.Center };
+            var box = new TextBox { Text = rule.Value, MinHeight = 36, VerticalAlignment = VerticalAlignment.Center, ToolTip = inheritedHint + "；这里只接受" + (rule.Kind == CarpetRuleValueKind.Integer ? "整数" : "数值"), VerticalContentAlignment = VerticalAlignment.Center };
             box.LostKeyboardFocus += (_, _) =>
             {
                 var value = box.Text.Trim();
@@ -174,7 +174,18 @@ public partial class MainWindow
             combo.SelectionChanged += (_, _) => { if (combo.SelectedItem is string value) { rule.Value = value; MarkModConfigDraftChanged(); } };
             return combo;
         }
-        var text = new TextBox { Text = rule.Value, Height = 36, VerticalAlignment = VerticalAlignment.Center, ToolTip = inheritedHint, VerticalContentAlignment = VerticalAlignment.Center };
+        var text = new TextBox
+        {
+            Text = rule.Value,
+            MinHeight = 36,
+            MaxHeight = 96,
+            VerticalAlignment = VerticalAlignment.Center,
+            ToolTip = inheritedHint,
+            VerticalContentAlignment = VerticalAlignment.Center,
+            TextWrapping = TextWrapping.Wrap,
+            AcceptsReturn = true,
+            VerticalScrollBarVisibility = ScrollBarVisibility.Auto
+        };
         text.LostKeyboardFocus += (_, _) => { rule.Value = text.Text.Trim(); MarkModConfigDraftChanged(); };
         return text;
     }
