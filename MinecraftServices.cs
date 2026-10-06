@@ -197,11 +197,73 @@ public static class MinecraftConfig
         var file = Path.Combine(instance, "options.txt");
         Directory.CreateDirectory(instance);
         var existed = File.Exists(file);
-        if (existed) File.Copy(file, file + ".mcprofilestudio.bak", true);
+        var originalLines = (existed ? File.ReadAllLines(file) : []).ToList();
+        var detectedDataVersion = ReadMinecraftDataVersion(instance);
+        var existingDataVersion = originalLines.Select(ParseLine).Where(item => item?.Key == "version").Select(item => int.TryParse(item?.Value, out var value) ? value : (int?)null).FirstOrDefault(value => value.HasValue);
+        var targetDataVersion = detectedDataVersion ?? existingDataVersion;
+        if (targetDataVersion == null) throw new InvalidOperationException("无法从目标客户端 JAR 或 options.txt 识别 Minecraft DataVersion。为避免跨版本写入导致整份设置被重置，本次未覆盖。");
+        ValidateKeyOptionValues(changes, targetDataVersion.Value);
+
         var seen = new HashSet<string>(StringComparer.Ordinal);
-        var lines = (existed ? File.ReadAllLines(file) : []).Select(line => { var parsed = ParseLine(line); if (parsed is { } p && changes.TryGetValue(p.Key, out var value)) { seen.Add(p.Key); return $"{p.Key}:{value}"; } return line; }).ToList();
+        var lines = originalLines.Select(line =>
+        {
+            var parsed = ParseLine(line);
+            if (parsed is { Key: "version" }) return $"version:{targetDataVersion.Value}";
+            if (parsed is { } p && changes.TryGetValue(p.Key, out var value)) { seen.Add(p.Key); return $"{p.Key}:{value}"; }
+            return line;
+        }).ToList();
         foreach (var pair in changes.Where(p => !seen.Contains(p.Key))) lines.Add($"{pair.Key}:{pair.Value}");
-        File.WriteAllLines(file, lines);
+        if (!lines.Any(line => line.StartsWith("version:", StringComparison.Ordinal)))
+            lines.Insert(0, $"version:{targetDataVersion.Value}");
+
+        var temporary = file + ".mcprofilestudio.tmp";
+        try
+        {
+            File.WriteAllLines(temporary, lines, new UTF8Encoding(false));
+            var written = ReadOptionsFile(temporary);
+            if (!written.TryGetValue("version", out var versionText) || versionText != targetDataVersion.Value.ToString()) throw new IOException("options.txt DataVersion 回读校验失败。");
+            foreach (var pair in changes)
+                if (!written.TryGetValue(pair.Key, out var value) || !value.Equals(pair.Value, StringComparison.Ordinal)) throw new IOException($"options.txt 回读校验失败：{pair.Key}");
+            if (existed) File.Copy(file, file + ".mcprofilestudio.bak", true);
+            File.Move(temporary, file, true);
+        }
+        finally
+        {
+            if (File.Exists(temporary)) File.Delete(temporary);
+        }
+    }
+
+    private static void ValidateKeyOptionValues(IReadOnlyDictionary<string, string> changes, int dataVersion)
+    {
+        var keyValues = changes.Where(pair => pair.Key.StartsWith("key_", StringComparison.Ordinal)).ToList();
+        if (keyValues.Count == 0) return;
+        if (dataVersion < 1519)
+        {
+            var incompatible = keyValues.FirstOrDefault(pair => !int.TryParse(pair.Value, out _));
+            if (!string.IsNullOrEmpty(incompatible.Key)) throw new InvalidOperationException($"目标实例使用 1.13 之前的数字键位格式，但配置中的 {incompatible.Key} 是现代键名。为避免重置 options.txt，本次未覆盖键位。");
+            return;
+        }
+        var modernPattern = new Regex(@"^(?:key\.(?:keyboard|mouse)\.[^:\r\n]+|scancode\.\d+)(?::(?:CONTROL|SHIFT|ALT))?$", RegexOptions.IgnoreCase);
+        var invalid = keyValues.FirstOrDefault(pair => !modernPattern.IsMatch(pair.Value));
+        if (!string.IsNullOrEmpty(invalid.Key)) throw new InvalidOperationException($"键位 {invalid.Key} 的值不符合当前 Minecraft 格式：{invalid.Value}");
+    }
+
+    public static int? ReadMinecraftDataVersion(string instance)
+    {
+        if (!Directory.Exists(instance)) return null;
+        foreach (var jar in Directory.EnumerateFiles(instance, "*.jar", SearchOption.TopDirectoryOnly))
+        {
+            try
+            {
+                using var zip = ZipFile.OpenRead(jar);
+                var entry = zip.GetEntry("version.json");
+                if (entry == null) continue;
+                using var document = JsonDocument.Parse(entry.Open());
+                if (document.RootElement.TryGetProperty("world_version", out var value) && value.TryGetInt32(out var version)) return version;
+            }
+            catch { }
+        }
+        return null;
     }
 
     public static HashSet<string> DetectModIds(string instance)
