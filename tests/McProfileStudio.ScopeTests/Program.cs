@@ -28,3 +28,9 @@ Assert(!CompatibilityScopes.Matches(majorRange, "26.1"), "new calendar version i
 Assert(CompatibilityScopes.IsOrdered(new CompatibilityScope { MinVersion = "1.21", MaxVersion = "26.1" }), "1.21 to 26.1 is an ordered range");
 Assert(!CompatibilityScopes.IsOrdered(new CompatibilityScope { MinVersion = "26.2", MaxVersion = "26.1" }), "reversed official major range is rejected");
 Assert(CompatibilityScopes.OfficialMajorVersions.SequenceEqual(CompatibilityScopes.OfficialMajorVersions.OrderBy(value => Version.Parse(value))), "official major versions stay sorted");
+
+var favoriteDefault = new FavoriteModRange { Id = "default", Name = "all" };
+var favoriteForge = new FavoriteModRange { Name = "Forge 1.20", MinVersion = "1.20", MaxVersion = "1.20", Loaders = ["Forge"] };
+var favoriteNeoForge = new FavoriteModRange { Name = "NeoForge 1.21", MinVersion = "1.21", MaxVersion = "1.21", Loaders = ["NeoForge"] };
+Assert(CompatibilityScopes.Resolve([favoriteDefault, favoriteForge, favoriteNeoForge], "1.20.1", "Forge").Name == "Forge 1.20", "favorite Mod scope resolves by version and loader");
+Assert(CompatibilityScopes.Resolve([favoriteDefault, favoriteForge, favoriteNeoForge], "1.20.1", "Fabric").Name == "all", "favorite Mod scope falls back for an unmatched loader");

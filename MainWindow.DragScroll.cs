@@ -65,8 +65,9 @@ public partial class MainWindow
         for (DependencyObject? current = source; current != null; current = DragScrollParent(current))
         {
             if (current is ScrollBar or Thumb or TextBoxBase or PasswordBox or ComboBox or ButtonBase or CheckBox) return true;
+            // Resource-pack lists own their left-drag gesture for ordering. Keep walking
+            // past the internal ScrollViewer so it cannot capture the gesture first.
             if (current is ListBox list && (ReferenceEquals(list, PackList) || ReferenceEquals(list, disabledPackList) || ReferenceEquals(list, enabledPackList))) return true;
-            if (current is ScrollViewer) break;
         }
         return false;
     }

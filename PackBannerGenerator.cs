@@ -17,7 +17,7 @@ public static class PackBannerGenerator
     {
         var cache = Path.Combine(SettingsStore.Root, "font-banners"); Directory.CreateDirectory(cache);
         var stamp = Directory.Exists(packPath) ? Directory.GetLastWriteTimeUtc(packPath).Ticks : File.GetLastWriteTimeUtc(packPath).Ticks;
-        var key = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes("font-v2|" + packPath + "|" + stamp)))[..20];
+        var key = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes("font-v3|" + packPath + "|" + stamp)))[..20];
         var target = Path.Combine(cache, key + ".png"); if (File.Exists(target)) return target;
         try { var glyphs = Directory.Exists(packPath) ? ReadFolderGlyphs(packPath) : ReadZipGlyphs(packPath); if (glyphs.Count == 0) return ""; RenderGlyphs(glyphs, target); return target; }
         catch { return ""; }
@@ -27,7 +27,7 @@ public static class PackBannerGenerator
     {
         var metaPath = Path.Combine(root, "pack.mcmeta");
         if (!File.Exists(metaPath)) return [];
-        var characters = ReadDescriptionCharacters(File.ReadAllText(metaPath));
+        var characters = ReadDescriptionCharacters(File.ReadAllText(metaPath), ReadFolderManifestCharacters(root));
         return ResolveFromResourceStack(root, characters);
     }
 
@@ -45,7 +45,7 @@ public static class PackBannerGenerator
     private static List<Glyph> ReadZipGlyphs(string path)
     {
         using var zip = ZipFile.OpenRead(path); var meta = FindEntry(zip, "pack.mcmeta"); if (meta == null) return [];
-        var characters = ReadDescriptionCharacters(ReadText(meta));
+        var characters = ReadDescriptionCharacters(ReadText(meta), ReadZipManifestCharacters(zip));
         return ResolveFromResourceStack(path, characters);
     }
 
@@ -78,11 +78,50 @@ public static class PackBannerGenerator
         return best;
     }
 
-    private static List<int> ReadDescriptionCharacters(string json)
+    private static HashSet<int> ReadFolderManifestCharacters(string root)
+    {
+        var result = new HashSet<int>();
+        foreach (var path in Directory.EnumerateFiles(root, "*.banner-manifest.json", SearchOption.TopDirectoryOnly))
+        {
+            try { AddManifestCharacters(File.ReadAllText(path), result); } catch { }
+        }
+        return result;
+    }
+
+    private static HashSet<int> ReadZipManifestCharacters(ZipArchive zip)
+    {
+        var result = new HashSet<int>();
+        foreach (var entry in zip.Entries.Where(e => e.FullName.EndsWith(".banner-manifest.json", StringComparison.OrdinalIgnoreCase)))
+        {
+            try { AddManifestCharacters(ReadText(entry), result); } catch { }
+        }
+        return result;
+    }
+
+    private static void AddManifestCharacters(string json, HashSet<int> result)
+    {
+        using var doc = JsonDocument.Parse(json, JsonOptions);
+        if (doc.RootElement.TryGetProperty("characters", out var characters) && characters.ValueKind == JsonValueKind.String)
+        {
+            foreach (var rune in (characters.GetString() ?? "").EnumerateRunes()) result.Add(rune.Value);
+            return;
+        }
+        if (!doc.RootElement.TryGetProperty("codePoints", out var codePoints) || codePoints.ValueKind != JsonValueKind.Array) return;
+        foreach (var item in codePoints.EnumerateArray())
+        {
+            var value = item.GetString();
+            if (value?.StartsWith("U+", StringComparison.OrdinalIgnoreCase) == true && int.TryParse(value.AsSpan(2), System.Globalization.NumberStyles.HexNumber, null, out var codePoint)) result.Add(codePoint);
+        }
+    }
+
+    private static List<int> ReadDescriptionCharacters(string json, IReadOnlySet<int> declaredCharacters)
     {
         using var doc = JsonDocument.Parse(EscapeLineBreaksInsideStrings(json), JsonOptions);
         if (!doc.RootElement.TryGetProperty("pack", out var pack) || !pack.TryGetProperty("description", out var description)) return [];
-        return Flatten(description).EnumerateRunes().Where(r => r.Value is >= 0xE000 and <= 0xF8FF or >= 0xF0000 and <= 0xFFFFD or >= 0x100000 and <= 0x10FFFD).Select(r => r.Value).ToList();
+        var runes = Flatten(description).EnumerateRunes();
+        return declaredCharacters.Count > 0
+            ? runes.Where(r => declaredCharacters.Contains(r.Value)).Select(r => r.Value).ToList()
+            : runes.Where(r => r.Value is >= 0xE000 and <= 0xF8FF or >= 0xF0000 and <= 0xFFFFD or >= 0x100000 and <= 0x10FFFD).Select(r => r.Value).ToList();
     }
 
     private static string Flatten(JsonElement value)

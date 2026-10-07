@@ -9,7 +9,7 @@
       <Grid.ColumnDefinitions><ColumnDefinition Width="60"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
       <Border Width="60" Height="60" CornerRadius="4" ClipToBounds="True" Background="#353A3A3A" VerticalAlignment="Stretch">
         <Image Source="{Binding PreviewImage}" Stretch="UniformToFill">
-          <Image.ToolTip><StackPanel><TextBlock Text="{Binding Name}" FontWeight="SemiBold"/><Image Source="{Binding PreviewImage}" Width="160" Height="160" Stretch="Uniform" Margin="0,8,0,0"/></StackPanel></Image.ToolTip>
+          <Image.ToolTip><StackPanel><local:MinecraftTextBlock MinecraftText="{Binding Name}" Foreground="White" FontWeight="SemiBold"/><Image Source="{Binding PreviewImage}" Width="160" Height="160" Stretch="Uniform" Margin="0,8,0,0"/></StackPanel></Image.ToolTip>
         </Image>
       </Border>
       <Border Grid.Column="1" Margin="8,0,0,0" Height="60" VerticalAlignment="Center" CornerRadius="4" ClipToBounds="True" Background="#B91D1D1D">
@@ -28,7 +28,9 @@
           </Border>
           <StackPanel Margin="14,7,12,6" VerticalAlignment="Center">
             <StackPanel.Style><Style TargetType="StackPanel"><Style.Triggers><DataTrigger Binding="{Binding IsFontBanner}" Value="True"><Setter Property="Visibility" Value="Collapsed"/></DataTrigger></Style.Triggers></Style></StackPanel.Style>
-            <TextBlock Text="{Binding Name}" Foreground="White" FontSize="14" FontWeight="SemiBold" TextWrapping="Wrap" MaxHeight="38" ToolTip="{Binding Name}"/>
+            <local:MinecraftTextBlock MinecraftText="{Binding Name}" Foreground="White" FontSize="14" FontWeight="SemiBold" TextWrapping="Wrap" MaxHeight="38">
+              <local:MinecraftTextBlock.ToolTip><local:MinecraftTextBlock MinecraftText="{Binding Name}" Foreground="White" FontSize="13" MaxWidth="560" TextWrapping="Wrap"/></local:MinecraftTextBlock.ToolTip>
+            </local:MinecraftTextBlock>
             <local:MinecraftTextBlock MinecraftText="{Binding Description}" Foreground="#EAF4FF" FontSize="11.5" TextTrimming="CharacterEllipsis" Margin="0,2,0,0">
               <local:MinecraftTextBlock.ToolTip><local:MinecraftTextBlock MinecraftText="{Binding Description}" Foreground="White" FontSize="13" MaxWidth="560" TextWrapping="Wrap"/></local:MinecraftTextBlock.ToolTip>
             </local:MinecraftTextBlock>

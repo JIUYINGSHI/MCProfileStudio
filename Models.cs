@@ -90,6 +90,13 @@ public class AppSettings
 public class FavoriteModProfile
 {
     public List<FavoriteMod> Mods { get; set; } = [];
+    public List<FavoriteModRange> VersionRanges { get; set; } = [];
+    public string ActiveRangeId { get; set; } = "";
+}
+
+public class FavoriteModRange : CompatibilityScope
+{
+    public List<FavoriteMod> Mods { get; set; } = [];
 }
 
 public class FavoriteMod

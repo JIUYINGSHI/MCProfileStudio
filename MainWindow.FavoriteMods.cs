@@ -21,7 +21,7 @@ public partial class MainWindow
     private bool favoriteProfileDirty;
     private readonly List<FavoriteMod> favoriteModDraft = [];
     private CancellationTokenSource? marketplaceSearchCancellation;
-    private static readonly string[] CommonMinecraftVersions = ["1.21.10", "1.21.8", "1.21.5", "1.21.4", "1.21.1", "1.20.6", "1.20.4", "1.20.1", "1.19.4", "1.19.2", "1.18.2", "1.16.5", "1.12.2"];
+    private static readonly string[] CommonMinecraftVersions = ["26.2", "26.1", "1.21.11", "1.21.10", "1.21.8", "1.21.5", "1.21.4", "1.21.1", "1.20.6", "1.20.4", "1.20.1", "1.19.4", "1.19.2", "1.18.2", "1.16.5", "1.12.2"];
     private static readonly string[] SupportedLoaders = ["Fabric", "Forge", "NeoForge", "Quilt"];
 
     private void EnsureFavoriteModProfiles()
@@ -31,6 +31,7 @@ public partial class MainWindow
         var changed = false;
         if (settings.FavoriteModProfiles.Count == 0) { settings.FavoriteModProfiles["默认收藏"] = new FavoriteModProfile { Mods = CloneFavoriteMods(settings.FavoriteMods) }; changed = true; }
         if (!settings.FavoriteModProfiles.ContainsKey(settings.ActiveFavoriteModProfile)) { settings.ActiveFavoriteModProfile = settings.FavoriteModProfiles.Keys.First(); changed = true; }
+        foreach (var profile in settings.FavoriteModProfiles.Values) { if (profile.VersionRanges == null || profile.VersionRanges.Count == 0) changed = true; EnsureFavoriteRanges(profile); }
         if (changed) SettingsStore.Save(settings);
         LoadFavoriteProfileDraft();
     }
@@ -40,7 +41,7 @@ public partial class MainWindow
     private void LoadFavoriteProfileDraft()
     {
         favoriteModDraft.Clear();
-        if (settings.FavoriteModProfiles.TryGetValue(settings.ActiveFavoriteModProfile, out var profile)) favoriteModDraft.AddRange(CloneFavoriteMods(profile.Mods ?? []));
+        if (settings.FavoriteModProfiles.TryGetValue(settings.ActiveFavoriteModProfile, out var profile)) favoriteModDraft.AddRange(CloneFavoriteMods(EditingFavoriteRange(profile).Mods));
         favoriteProfileDirty = false;
     }
 
@@ -56,12 +57,12 @@ public partial class MainWindow
         {
             switchingFavoriteProfile = true; favoriteProfileCombo.SelectedItem = settings.ActiveFavoriteModProfile; switchingFavoriteProfile = false; return;
         }
-        settings.ActiveFavoriteModProfile = name; SettingsStore.Save(settings); LoadFavoriteProfileDraft(); marketplaceResults?.Children.Clear(); RefreshFavoriteList(); RefreshFavoriteModStatus(); StatusText.Text = $"已切换 Mod 收藏方案：{name}";
+        settings.ActiveFavoriteModProfile = name; SettingsStore.Save(settings); LoadFavoriteProfileDraft(); RefreshFavoriteScopeSelector(true); marketplaceResults?.Children.Clear(); RefreshFavoriteList(); RefreshFavoriteModStatus(); StatusText.Text = $"已切换 Mod 收藏方案：{name}";
     }
 
     private void AddFavoriteProfile_Click(object sender, RoutedEventArgs e)
     {
-        var index = 1; string suggestion; do suggestion = $"收藏方案 {index++}"; while (settings.FavoriteModProfiles.ContainsKey(suggestion)); var name = PromptForProfileName("新建 Mod 收藏方案", suggestion); if (string.IsNullOrWhiteSpace(name) || settings.FavoriteModProfiles.ContainsKey(name)) return; settings.FavoriteModProfiles[name] = new FavoriteModProfile(); settings.ActiveFavoriteModProfile = name; SettingsStore.Save(settings); LoadFavoriteProfileDraft(); RefreshFavoriteProfileSelector(); RefreshFavoriteList(); RefreshFavoriteModStatus(); StatusText.Text = "新 Mod 收藏方案尚未添加收藏";
+        var index = 1; string suggestion; do suggestion = $"收藏方案 {index++}"; while (settings.FavoriteModProfiles.ContainsKey(suggestion)); var name = PromptForProfileName("新建 Mod 收藏方案", suggestion); if (string.IsNullOrWhiteSpace(name) || settings.FavoriteModProfiles.ContainsKey(name)) return; var profile = new FavoriteModProfile(); EnsureFavoriteRanges(profile); settings.FavoriteModProfiles[name] = profile; settings.ActiveFavoriteModProfile = name; SettingsStore.Save(settings); LoadFavoriteProfileDraft(); RefreshFavoriteProfileSelector(); RefreshFavoriteScopeSelector(); RefreshFavoriteList(); RefreshFavoriteModStatus(); StatusText.Text = "新 Mod 收藏方案尚未添加收藏";
     }
 
     private void RenameFavoriteProfile_Click(object sender, RoutedEventArgs e)
@@ -71,12 +72,12 @@ public partial class MainWindow
 
     private void DeleteFavoriteProfile_Click(object sender, RoutedEventArgs e)
     {
-        if (settings.FavoriteModProfiles.Count <= 1) { AppDialog.Show(this, "至少需要保留一套 Mod 收藏方案。", "无法删除", MessageBoxButton.OK, MessageBoxImage.Information); return; } var name = settings.ActiveFavoriteModProfile; if (AppDialog.Show(this, $"确定删除 Mod 收藏方案“{name}”吗？", "删除 Mod 收藏方案", MessageBoxButton.YesNo, MessageBoxImage.Warning) != MessageBoxResult.Yes) return; settings.FavoriteModProfiles.Remove(name); settings.ActiveFavoriteModProfile = settings.FavoriteModProfiles.Keys.Order().First(); SettingsStore.Save(settings); LoadFavoriteProfileDraft(); RefreshFavoriteProfileSelector(); RefreshFavoriteList(); RefreshFavoriteModStatus(); StatusText.Text = $"已删除 Mod 收藏方案：{name}";
+        if (settings.FavoriteModProfiles.Count <= 1) { AppDialog.Show(this, "至少需要保留一套 Mod 收藏方案。", "无法删除", MessageBoxButton.OK, MessageBoxImage.Information); return; } var name = settings.ActiveFavoriteModProfile; if (AppDialog.Show(this, $"确定删除 Mod 收藏方案“{name}”吗？", "删除 Mod 收藏方案", MessageBoxButton.YesNo, MessageBoxImage.Warning) != MessageBoxResult.Yes) return; settings.FavoriteModProfiles.Remove(name); settings.ActiveFavoriteModProfile = settings.FavoriteModProfiles.Keys.Order().First(); SettingsStore.Save(settings); LoadFavoriteProfileDraft(); RefreshFavoriteProfileSelector(); RefreshFavoriteScopeSelector(true); RefreshFavoriteList(); RefreshFavoriteModStatus(); StatusText.Text = $"已删除 Mod 收藏方案：{name}";
     }
 
     private void SaveFavoriteProfile_Click(object sender, RoutedEventArgs e)
     {
-        var saved = CloneFavoriteMods(favoriteModDraft); settings.FavoriteModProfiles[settings.ActiveFavoriteModProfile] = new FavoriteModProfile { Mods = saved }; settings.FavoriteMods = CloneFavoriteMods(saved); SettingsStore.Save(settings); favoriteProfileDirty = false; StatusText.Text = $"已保存 Mod 收藏方案：{settings.ActiveFavoriteModProfile}";
+        var saved = CloneFavoriteMods(favoriteModDraft); var profile = settings.FavoriteModProfiles[settings.ActiveFavoriteModProfile]; EditingFavoriteRange(profile).Mods = saved; profile.Mods = CloneFavoriteMods(saved); settings.FavoriteMods = CloneFavoriteMods(saved); SettingsStore.Save(settings); favoriteProfileDirty = false; StatusText.Text = $"已保存 Mod 收藏方案：{settings.ActiveFavoriteModProfile} / {EditingFavoriteRange(profile).Name}";
     }
 
     private void BuildFavoriteModsPage()
@@ -102,6 +103,9 @@ public partial class MainWindow
 
         var right = MakeFavoriteCard(new Thickness(10, 0, 0, 14)); var rightDock = new DockPanel(); var favoriteHeader = new StackPanel(); favoriteHeader.Children.Add(new TextBlock { Text = "Mod 收藏方案", Foreground = Brushes.White, FontSize = 19, FontWeight = FontWeights.SemiBold }); favoriteHeader.Children.Add(new TextBlock { Text = "每套方案保存一组收藏 Mod；切换方案会还原对应收藏，只有点击保存才会持久化增删。", Foreground = new SolidColorBrush(Color.FromRgb(166, 185, 203)), TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 5, 0, 10) });
         favoriteProfileCombo = new ComboBox { HorizontalAlignment = HorizontalAlignment.Center, MinWidth = 150 }; favoriteProfileCombo.SelectionChanged += FavoriteProfile_SelectionChanged; favoriteHeader.Children.Add(favoriteProfileCombo);
+        favoriteHeader.Children.Add(new TextBlock { Text = "适用版本与加载器", Foreground = new SolidColorBrush(Color.FromRgb(166, 185, 203)), Margin = new Thickness(0, 10, 0, 6) });
+        favoriteScopeCombo = new ComboBox(); favoriteScopeCombo.SelectionChanged += FavoriteScope_SelectionChanged; favoriteHeader.Children.Add(favoriteScopeCombo);
+        var scopeButtons = new Grid { Margin = new Thickness(0, 7, 0, 0) }; scopeButtons.ColumnDefinitions.Add(new ColumnDefinition()); scopeButtons.ColumnDefinitions.Add(new ColumnDefinition()); var addScope = new Button { Content = "添加范围" }; addScope.Click += AddFavoriteScope_Click; var deleteScope = new Button { Content = "删除范围", Background = new SolidColorBrush(Color.FromRgb(112, 48, 56)), Margin = new Thickness(6, 0, 0, 0) }; deleteScope.Click += DeleteFavoriteScope_Click; Grid.SetColumn(deleteScope, 1); scopeButtons.Children.Add(addScope); scopeButtons.Children.Add(deleteScope); favoriteHeader.Children.Add(scopeButtons);
         var profileButtons = new StackPanel { Margin = new Thickness(0, 8, 0, 10) };
         var addProfile = new Button { Content = "新建配置", Margin = new Thickness(0, 0, 0, 6) }; addProfile.Click += AddFavoriteProfile_Click;
         var renameProfile = new Button { Content = "重命名", Background = new SolidColorBrush(Color.FromRgb(58, 58, 58)), Margin = new Thickness(0, 0, 0, 6) }; renameProfile.Click += RenameFavoriteProfile_Click;
@@ -111,7 +115,7 @@ public partial class MainWindow
         favoriteHeader.Children.Add(new TextBlock { Text = "当前方案收藏", Foreground = Brushes.White, FontSize = 16, FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 2, 0, 8) });
         DockPanel.SetDock(favoriteHeader, Dock.Top); rightDock.Children.Add(favoriteHeader);
         favoriteModsList = new StackPanel(); rightDock.Children.Add(new ScrollViewer { Content = favoriteModsList, VerticalScrollBarVisibility = ScrollBarVisibility.Auto }); right.Child = rightDock; Grid.SetColumn(right, 1); favoriteModsPage.Children.Add(right);
-        host.Children.Add(favoriteModsPage); BuildFavoriteHomeCard(); RefreshFavoriteProfileSelector(); RefreshFavoriteList(); DetectAndSelectInstanceEnvironment(); RefreshFavoriteModStatus();
+        host.Children.Add(favoriteModsPage); BuildFavoriteHomeCard(); RefreshFavoriteProfileSelector(); RefreshFavoriteScopeSelector(true); RefreshFavoriteList(); DetectAndSelectInstanceEnvironment(); RefreshFavoriteModStatus();
     }
 
     private static Border MakeFavoriteCard(Thickness margin) => new() { Margin = margin, Padding = new Thickness(18), CornerRadius = new CornerRadius(14), Background = new SolidColorBrush(Color.FromArgb(114, 0, 0, 0)), BorderBrush = new SolidColorBrush(Color.FromArgb(42, 255, 255, 255)), BorderThickness = new Thickness(1) };
@@ -209,10 +213,10 @@ public partial class MainWindow
 
     private void RefreshFavoriteModStatus()
     {
-        if (favoriteStatusList == null) return; favoriteStatusList.Children.Clear(); var missing = favoriteModDraft.Where(item => !IsFavoriteInstalled(item)).ToList(); var installed = favoriteModDraft.Count - missing.Count;
+        if (favoriteStatusList == null) return; favoriteStatusList.Children.Clear(); var applicable = FavoriteModsForCurrentInstance(); var missing = applicable.Where(item => !IsFavoriteInstalled(item)).ToList(); var installed = applicable.Count - missing.Count;
         var selectedVersion = marketplaceVersionCombo?.SelectedItem as string ?? "未识别"; var selectedLoader = marketplaceLoaderCombo?.SelectedItem as string ?? "未识别";
-        favoriteHomeSummary!.Text = string.IsNullOrWhiteSpace(instance) ? $"已收藏 {favoriteModDraft.Count} 个 Mod；导入实例后检查缺失情况。" : $"当前实例：Minecraft {selectedVersion} / {selectedLoader}；已安装 {installed} 个，缺少 {missing.Count} 个收藏 Mod。";
-        foreach (var favorite in favoriteModDraft) favoriteStatusList.Children.Add(new TextBlock { Text = $"{(IsFavoriteInstalled(favorite) ? "✓" : "○")}  {GetLocalizedMarketplaceName(favorite.Slug, favorite.Name)}  ·  {(IsFavoriteInstalled(favorite) ? "已安装" : "缺失")}", Foreground = IsFavoriteInstalled(favorite) ? new SolidColorBrush(Color.FromRgb(113, 211, 151)) : new SolidColorBrush(Color.FromRgb(255, 190, 105)), Margin = new Thickness(0, 2, 0, 2) });
+        favoriteHomeSummary!.Text = string.IsNullOrWhiteSpace(instance) ? $"当前范围收藏 {applicable.Count} 个 Mod；导入实例后检查缺失情况。" : $"当前实例：Minecraft {selectedVersion} / {selectedLoader}；适用范围“{ResolveFavoriteRange(settings.FavoriteModProfiles[settings.ActiveFavoriteModProfile]).Name}”，已安装 {installed} 个，缺少 {missing.Count} 个收藏 Mod。";
+        foreach (var favorite in applicable) favoriteStatusList.Children.Add(new TextBlock { Text = $"{(IsFavoriteInstalled(favorite) ? "✓" : "○")}  {GetLocalizedMarketplaceName(favorite.Slug, favorite.Name)}  ·  {(IsFavoriteInstalled(favorite) ? "已安装" : "缺失")}", Foreground = IsFavoriteInstalled(favorite) ? new SolidColorBrush(Color.FromRgb(113, 211, 151)) : new SolidColorBrush(Color.FromRgb(255, 190, 105)), Margin = new Thickness(0, 2, 0, 2) });
     }
 
     private void DetectAndSelectInstanceEnvironment(bool forceDetected = false)
@@ -239,7 +243,7 @@ public partial class MainWindow
                 try
                 {
                     var text = File.ReadAllText(file); using var document = JsonDocument.Parse(text); var root = document.RootElement;
-                    foreach (var property in new[] { "clientVersion", "minecraftVersion", "inheritsFrom" }) if (string.IsNullOrWhiteSpace(version) && root.TryGetProperty(property, out var value) && value.ValueKind == JsonValueKind.String) { var match = Regex.Match(value.GetString() ?? "", @"(?<!\d)(1\.\d+(?:\.\d+)?)(?!\d)"); if (match.Success) version = match.Groups[1].Value; }
+                    foreach (var property in new[] { "clientVersion", "minecraftVersion", "inheritsFrom" }) if (string.IsNullOrWhiteSpace(version) && root.TryGetProperty(property, out var value) && value.ValueKind == JsonValueKind.String) { var match = Regex.Match(value.GetString() ?? "", @"(?<!\d)((?:1|2\d)\.\d+(?:\.\d+)?)(?!\d)"); if (match.Success) version = match.Groups[1].Value; }
                     if (string.IsNullOrWhiteSpace(version) && root.TryGetProperty("arguments", out var arguments) && arguments.TryGetProperty("game", out var game) && game.ValueKind == JsonValueKind.Array)
                     {
                         var values = game.EnumerateArray().Where(item => item.ValueKind == JsonValueKind.String).Select(item => item.GetString() ?? "").ToList(); var index = values.FindIndex(item => item == "--fml.mcVersion"); if (index >= 0 && index + 1 < values.Count) version = values[index + 1];
@@ -248,7 +252,7 @@ public partial class MainWindow
                 }
                 catch { }
             }
-            if (string.IsNullOrWhiteSpace(version)) { var match = Regex.Match(Path.GetFileName(instance), @"(?<!\d)(1\.\d+(?:\.\d+)?)(?!\d)"); if (match.Success) version = match.Groups[1].Value; }
+            if (string.IsNullOrWhiteSpace(version)) { var match = Regex.Match(Path.GetFileName(instance), @"(?<!\d)((?:1|2\d)\.\d+(?:\.\d+)?)(?!\d)"); if (match.Success) version = match.Groups[1].Value; }
             if (string.IsNullOrWhiteSpace(loader)) { if (mods.ContainsKey("fabric-api")) loader = "Fabric"; else if (mods.Keys.Any(id => id.Contains("neoforge", StringComparison.OrdinalIgnoreCase))) loader = "NeoForge"; }
         }
         return (string.IsNullOrWhiteSpace(version) ? "未识别" : version, string.IsNullOrWhiteSpace(loader) ? "未识别" : loader);
@@ -257,7 +261,7 @@ public partial class MainWindow
     private async void OpenFavoriteDownloadDialog_Click(object sender, RoutedEventArgs e)
     {
         if (string.IsNullOrWhiteSpace(instance) || !Directory.Exists(instance)) { AppDialog.Show(this, "请先导入要安装 Mod 的 Minecraft 实例。", "尚未导入实例", MessageBoxButton.OK, MessageBoxImage.Information); return; }
-        var missing = favoriteModDraft.Where(item => !IsFavoriteInstalled(item)).ToList(); if (missing.Count == 0) { AppDialog.Show(this, "当前实例没有缺失的收藏 Mod。", "检测完成", MessageBoxButton.OK, MessageBoxImage.Information); return; }
+        var missing = FavoriteModsForCurrentInstance().Where(item => !IsFavoriteInstalled(item)).ToList(); if (missing.Count == 0) { AppDialog.Show(this, "当前实例没有缺失的收藏 Mod。", "检测完成", MessageBoxButton.OK, MessageBoxImage.Information); return; }
         await ShowFavoriteDownloadDialogAsync(missing);
     }
 
