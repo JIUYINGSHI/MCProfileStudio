@@ -13,8 +13,18 @@ public static class CompatibilityScopes
     public static bool IsOrdered(CompatibilityScope scope)
     {
         var min = Bound(scope.MinVersion, false, (0, 0, 0));
-        var max = Bound(scope.MaxVersion, true, (int.MaxValue, int.MaxValue, int.MaxValue));
-        return Compare(min, max) <= 0;
+        var max = Bound(scope.MaxVersion, false, (int.MaxValue, int.MaxValue, int.MaxValue));
+        return string.IsNullOrWhiteSpace(scope.MinVersion) || string.IsNullOrWhiteSpace(scope.MaxVersion) || Compare(min, max) < 0;
+    }
+
+    public static bool UpgradeLegacyInclusiveRange(CompatibilityScope scope)
+    {
+        if (string.IsNullOrWhiteSpace(scope.MinVersion) || string.IsNullOrWhiteSpace(scope.MaxVersion) || !scope.MinVersion.Equals(scope.MaxVersion, StringComparison.OrdinalIgnoreCase)) return false;
+        var normalized = Regex.Replace(scope.MaxVersion, @"\.(?:x|\*)$", "", RegexOptions.IgnoreCase);
+        var index = Array.FindIndex(OfficialMajorVersions, item => item.Equals(normalized, StringComparison.OrdinalIgnoreCase));
+        scope.MinVersion = normalized;
+        scope.MaxVersion = index >= 0 && index + 1 < OfficialMajorVersions.Length ? OfficialMajorVersions[index + 1] : "";
+        return true;
     }
 
     public static bool Matches(CompatibilityScope scope, string version, string? loader = null)
@@ -22,7 +32,7 @@ public static class CompatibilityScopes
         if (!string.IsNullOrWhiteSpace(loader) && scope.Loaders.Count > 0 && !scope.Loaders.Contains(loader, StringComparer.OrdinalIgnoreCase)) return false;
         if (!TryVersion(version, false, out var current)) return string.IsNullOrWhiteSpace(scope.MinVersion) && string.IsNullOrWhiteSpace(scope.MaxVersion);
         if (!string.IsNullOrWhiteSpace(scope.MinVersion) && TryVersion(scope.MinVersion, false, out var min) && Compare(current, min) < 0) return false;
-        if (!string.IsNullOrWhiteSpace(scope.MaxVersion) && TryVersion(scope.MaxVersion, true, out var max) && Compare(current, max) > 0) return false;
+        if (!string.IsNullOrWhiteSpace(scope.MaxVersion) && TryVersion(scope.MaxVersion, false, out var max) && Compare(current, max) >= 0) return false;
         return true;
     }
 
@@ -37,14 +47,14 @@ public static class CompatibilityScopes
     public static bool Overlaps(CompatibilityScope left, CompatibilityScope right)
     {
         if (left.Loaders.Count > 0 && right.Loaders.Count > 0 && !left.Loaders.Intersect(right.Loaders, StringComparer.OrdinalIgnoreCase).Any()) return false;
-        var leftMin = Bound(left.MinVersion, false, (0, 0, 0)); var leftMax = Bound(left.MaxVersion, true, (int.MaxValue, int.MaxValue, int.MaxValue));
-        var rightMin = Bound(right.MinVersion, false, (0, 0, 0)); var rightMax = Bound(right.MaxVersion, true, (int.MaxValue, int.MaxValue, int.MaxValue));
-        return Compare(leftMin, rightMax) <= 0 && Compare(rightMin, leftMax) <= 0;
+        var leftMin = Bound(left.MinVersion, false, (0, 0, 0)); var leftMax = Bound(left.MaxVersion, false, (int.MaxValue, int.MaxValue, int.MaxValue));
+        var rightMin = Bound(right.MinVersion, false, (0, 0, 0)); var rightMax = Bound(right.MaxVersion, false, (int.MaxValue, int.MaxValue, int.MaxValue));
+        return Compare(leftMin, rightMax) < 0 && Compare(rightMin, leftMax) < 0;
     }
 
     public static string Describe(CompatibilityScope scope)
     {
-        var versions = string.IsNullOrWhiteSpace(scope.MinVersion) && string.IsNullOrWhiteSpace(scope.MaxVersion) ? "全部版本" : $"{Blank(scope.MinVersion, "最早")} ～ {Blank(scope.MaxVersion, "最新")}";
+        var versions = string.IsNullOrWhiteSpace(scope.MinVersion) && string.IsNullOrWhiteSpace(scope.MaxVersion) ? "全部版本" : $"[{Blank(scope.MinVersion, "最早")}, {Blank(scope.MaxVersion, "最新")})";
         return scope.Loaders.Count == 0 ? versions : versions + " · " + string.Join(" / ", scope.Loaders);
     }
 

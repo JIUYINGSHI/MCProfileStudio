@@ -15,6 +15,7 @@ public partial class MainWindow
             profile.VersionRanges.Add(new FavoriteModRange { Id = "default", Name = "全部版本 / 加载器（默认）", Mods = CloneFavoriteMods(profile.Mods ?? []) });
         if (string.IsNullOrWhiteSpace(profile.ActiveRangeId) || profile.VersionRanges.All(item => item.Id != profile.ActiveRangeId))
             profile.ActiveRangeId = profile.VersionRanges[0].Id;
+        foreach (var range in profile.VersionRanges) CompatibilityScopes.UpgradeLegacyInclusiveRange(range);
     }
 
     private FavoriteModRange EditingFavoriteRange(FavoriteModProfile profile)
@@ -45,9 +46,11 @@ public partial class MainWindow
             }
         }
         if (favoriteScopeCombo == null) return;
+        var items = profile.VersionRanges.ToList();
         switchingFavoriteScope = true;
-        favoriteScopeCombo.ItemsSource = profile.VersionRanges;
-        favoriteScopeCombo.SelectedItem = EditingFavoriteRange(profile);
+        favoriteScopeCombo.ItemsSource = null;
+        favoriteScopeCombo.ItemsSource = items;
+        favoriteScopeCombo.SelectedItem = items.First(item => item.Id == profile.ActiveRangeId);
         switchingFavoriteScope = false;
         favoriteScopeCombo.ToolTip = CompatibilityScopes.Describe(EditingFavoriteRange(profile));
     }

@@ -354,6 +354,22 @@ public partial class MainWindow : Window
         shaders.Clear(); foreach (var shader in scannedShaders) shaders.Add(shader); ShaderList.SelectedItem = shaders.FirstOrDefault(s => s.Name.Equals(draftSelectedShader, StringComparison.OrdinalIgnoreCase)); BeginOnlineShaderPreviewRefresh(); PackPathText.Text = string.IsNullOrWhiteSpace(settings.PackLibrary) ? "尚未设置" : settings.PackLibrary; RefreshPackColumns();
     }
 
+    private void ApplyPackRangeToLoadedLibrary()
+    {
+        if (!settings.PackProfiles.TryGetValue(settings.ActivePackProfile, out var profile)) return;
+        var range = EditingPackRange(profile);
+        var order = range.PackOrder.Select((name, index) => (name, index)).ToDictionary(item => item.name, item => item.index, StringComparer.OrdinalIgnoreCase);
+        var desired = packs.OrderBy(item => order.TryGetValue(item.Name, out var index) ? index : int.MaxValue).ThenBy(item => item.Name, StringComparer.OrdinalIgnoreCase).ToList();
+        foreach (var item in desired) item.Enabled = range.EnabledPacks.Contains(item.Name, StringComparer.OrdinalIgnoreCase);
+        for (var target = 0; target < desired.Count; target++)
+        {
+            var current = packs.IndexOf(desired[target]);
+            if (current >= 0 && current != target) packs.Move(current, target);
+        }
+        RefreshPackColumns();
+        RefreshSummary();
+    }
+
     private async void BeginOnlineShaderPreviewRefresh()
     {
         shaderPreviewRefresh?.Cancel(); shaderPreviewRefresh?.Dispose(); shaderPreviewRefresh = new CancellationTokenSource(); var token = shaderPreviewRefresh.Token;
@@ -487,7 +503,7 @@ public partial class MainWindow : Window
         PacksPage.ColumnDefinitions.Add(new() { Width = new GridLength(1, GridUnitType.Star) }); PacksPage.ColumnDefinitions.Add(new() { Width = new GridLength(1, GridUnitType.Star) });
         var profileBar = new StackPanel { Margin = new Thickness(0, 0, 0, 14) };
         var profileTools = new WrapPanel(); profileTools.Children.Add(new TextBlock { Text = "资源包配置", Foreground = Brushes.White, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 12, 0), FontSize = 15 }); packProfileCombo = new ComboBox { Width = 210, ItemsSource = settings.PackProfiles.Keys.Order().ToList(), SelectedItem = settings.ActivePackProfile }; packProfileCombo.SelectionChanged += PackProfile_SelectionChanged; var add = new Button { Content = "新建", Margin = new Thickness(8, 0, 0, 0) }; add.Click += AddPackProfile_Click; var rename = new Button { Content = "重命名", Background = new SolidColorBrush(Color.FromRgb(58, 58, 58)), Margin = new Thickness(6, 0, 0, 0) }; rename.Click += RenamePackProfile_Click; var delete = new Button { Content = "删除", Background = new SolidColorBrush(Color.FromRgb(112, 48, 56)), Margin = new Thickness(6, 0, 0, 0) }; delete.Click += DeletePackProfile_Click; var saveProfile = new Button { Content = "保存配置", Margin = new Thickness(6, 0, 0, 0) }; saveProfile.Click += (_, _) => SavePackProfile(); profileTools.Children.Add(packProfileCombo); profileTools.Children.Add(add); profileTools.Children.Add(rename); profileTools.Children.Add(delete); profileTools.Children.Add(saveProfile);
-        var rangeTools = new WrapPanel { Margin = new Thickness(0, 9, 0, 0) }; rangeTools.Children.Add(new TextBlock { Text = "适用版本", Foreground = Brushes.White, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 12, 0) }); packRangeCombo = new ComboBox { Width = 260 }; packRangeCombo.SelectionChanged += PackRange_SelectionChanged; var addRange = new Button { Content = "添加范围", Margin = new Thickness(8, 0, 0, 0) }; addRange.Click += AddPackRange_Click; var deleteRange = new Button { Content = "删除范围", Background = new SolidColorBrush(Color.FromRgb(112, 48, 56)), Margin = new Thickness(6, 0, 0, 0) }; deleteRange.Click += DeletePackRange_Click; rangeTools.Children.Add(packRangeCombo); rangeTools.Children.Add(addRange); rangeTools.Children.Add(deleteRange);
+        var rangeTools = new WrapPanel { Margin = new Thickness(0, 9, 0, 0) }; rangeTools.Children.Add(new TextBlock { Text = "适用版本 [最低, 最高)", ToolTip = "最低版本包含，最高版本不包含", Foreground = Brushes.White, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 12, 0) }); packRangeCombo = new ComboBox { Width = 260 }; packRangeCombo.SelectionChanged += PackRange_SelectionChanged; var addRange = new Button { Content = "添加范围", Margin = new Thickness(8, 0, 0, 0) }; addRange.Click += AddPackRange_Click; var deleteRange = new Button { Content = "删除范围", Background = new SolidColorBrush(Color.FromRgb(112, 48, 56)), Margin = new Thickness(6, 0, 0, 0) }; deleteRange.Click += DeletePackRange_Click; rangeTools.Children.Add(packRangeCombo); rangeTools.Children.Add(addRange); rangeTools.Children.Add(deleteRange);
         var batchTools = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Left, Margin = new Thickness(0, 9, 0, 0) }; var import = new Button { Content = "导入 options.txt", Padding = new Thickness(13, 7, 13, 7), Background = new SolidColorBrush(Color.FromRgb(58, 58, 58)), Margin = new Thickness(0, 0, 8, 0) }; import.Click += ImportPackOptions_Click; var refresh = new Button { Content = "刷新资源包", Padding = new Thickness(13, 7, 13, 7), Background = new SolidColorBrush(Color.FromRgb(58, 58, 58)), Margin = new Thickness(0, 0, 8, 0), ToolTip = "重新扫描资源包目录，并保留当前草稿的排序与启用状态" }; refresh.Click += (_, _) => RefreshPackLibrary(); var enable = new Button { Content = "全部启用 →", Padding = new Thickness(13, 7, 13, 7) }; enable.Click += (_, _) => { foreach (var p in packs) p.Enabled = true; RefreshPackColumns(); StatusText.Text = "资源包配置已修改（尚未保存）"; }; var disable = new Button { Content = "全部关闭", Padding = new Thickness(13, 7, 13, 7), Background = new SolidColorBrush(Color.FromRgb(58, 58, 58)), Margin = new Thickness(8, 0, 0, 0) }; disable.Click += (_, _) => { foreach (var p in packs) p.Enabled = false; RefreshPackColumns(); StatusText.Text = "资源包配置已修改（尚未保存）"; }; batchTools.Children.Add(import); batchTools.Children.Add(refresh); batchTools.Children.Add(enable); batchTools.Children.Add(disable); profileBar.Children.Add(profileTools); profileBar.Children.Add(rangeTools); profileBar.Children.Add(batchTools); Grid.SetColumnSpan(profileBar, 2); PacksPage.Children.Add(profileBar); RefreshPackRangeSelector();
         disabledPackList = CreatePackColumn("未应用的资源包", template, false, 0); enabledPackList = CreatePackColumn("已应用的资源包（上方优先）", template, true, 1);
     }
@@ -731,7 +747,7 @@ public partial class MainWindow : Window
     {
         if (switchingProfile || packProfileCombo?.SelectedItem is not string name || name == settings.ActivePackProfile) return;
         if (IsPackProfileDirty() && AppDialog.Show(this, "当前资源包配置有尚未保存的修改。切换后这些草稿会丢失，仍要切换吗？", "未保存的资源包草稿", MessageBoxButton.YesNo, MessageBoxImage.Warning) != MessageBoxResult.Yes) { switchingProfile = true; packProfileCombo.SelectedItem = settings.ActivePackProfile; switchingProfile = false; return; }
-        settings.ActivePackProfile = name; RefreshPackRangeSelector(true); ReloadLibraries(); StatusText.Text = $"已切换资源包配置：{name}";
+        settings.ActivePackProfile = name; RefreshPackRangeSelector(true); ApplyPackRangeToLoadedLibrary(); StatusText.Text = $"已切换资源包配置：{name}";
     }
 
     private bool IsPackProfileDirty()

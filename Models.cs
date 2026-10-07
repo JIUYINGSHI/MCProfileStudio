@@ -154,7 +154,9 @@ public class CompatibilityScope
     public string MinVersion { get; set; } = "";
     public string MaxVersion { get; set; } = "";
     public List<string> Loaders { get; set; } = [];
-    public override string ToString() => Name;
+    public override string ToString() => string.IsNullOrWhiteSpace(MinVersion) && string.IsNullOrWhiteSpace(MaxVersion) && Loaders.Count == 0
+        ? Name
+        : $"{Name} · {CompatibilityScopes.Describe(this)}";
 }
 
 public class PackVersionRange : CompatibilityScope
