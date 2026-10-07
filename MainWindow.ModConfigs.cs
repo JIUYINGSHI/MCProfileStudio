@@ -179,6 +179,9 @@ public partial class MainWindow
         actions.Children.Add(new TextBlock { Text = "Mod 配置方案", Foreground = Brushes.White, FontSize = 18, FontWeight = FontWeights.SemiBold });
         actions.Children.Add(new TextBlock { Text = "每套方案保存所有 Mod 的当前草稿；切换方案会还原对应草稿。应用时可选择当前 Mod 或全部 Mod。", Foreground = new SolidColorBrush(Color.FromRgb(166, 185, 203)), TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 7, 0, 12) });
         modConfigProfileCombo = new ComboBox(); modConfigProfileCombo.SelectionChanged += ModConfigProfile_SelectionChanged; actions.Children.Add(modConfigProfileCombo);
+        actions.Children.Add(new TextBlock { Text = "适用版本与加载器", Foreground = new SolidColorBrush(Color.FromRgb(166, 185, 203)), Margin = new Thickness(0, 12, 0, 6) });
+        modConfigScopeCombo = new ComboBox(); modConfigScopeCombo.SelectionChanged += ModConfigScope_SelectionChanged; actions.Children.Add(modConfigScopeCombo);
+        var scopeButtons = new Grid { Margin = new Thickness(0, 7, 0, 0) }; scopeButtons.ColumnDefinitions.Add(new ColumnDefinition()); scopeButtons.ColumnDefinitions.Add(new ColumnDefinition()); var addScope = MakeActionButton("添加范围", AddModConfigScope_Click, new Thickness(0), false); var deleteScope = MakeActionButton("删除范围", DeleteModConfigScope_Click, new Thickness(6, 0, 0, 0), false); deleteScope.Background = new SolidColorBrush(Color.FromRgb(112, 48, 56)); Grid.SetColumn(deleteScope, 1); scopeButtons.Children.Add(addScope); scopeButtons.Children.Add(deleteScope); actions.Children.Add(scopeButtons);
         actions.Children.Add(MakeActionButton("新建配置", AddModConfigProfile_Click, new Thickness(0, 10, 0, 0)));
         actions.Children.Add(MakeActionButton("重命名", RenameModConfigProfile_Click, new Thickness(0, 7, 0, 0), false));
         var deleteProfile = MakeActionButton("删除当前配置", DeleteModConfigProfile_Click, new Thickness(0, 7, 0, 0), false); deleteProfile.Background = new SolidColorBrush(Color.FromRgb(112, 48, 56)); actions.Children.Add(deleteProfile);
@@ -193,7 +196,7 @@ public partial class MainWindow
         modConfigHint = new TextBlock { Foreground = new SolidColorBrush(Color.FromRgb(103, 190, 245)), TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 14, 0, 0) }; actions.Children.Add(modConfigHint);
         right.Child = actions; Grid.SetColumn(right, 2); modConfigsPage.Children.Add(right);
 
-        host.Children.Add(modConfigsPage); RefreshModConfigProfiles(); RefreshModConfigPage();
+        host.Children.Add(modConfigsPage); RefreshModConfigProfiles(); RefreshModConfigScopeSelector(true); RefreshModConfigPage();
     }
 
     private RadioButton? FindNavButton(string tag)
@@ -595,25 +598,26 @@ public partial class MainWindow
 
     private FrameworkElement BuildHotkeyEditor(JsonObject owner, string key)
     {
-        var grid = new Grid(); grid.ColumnDefinitions.Add(new ColumnDefinition()); grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(44) });
-        var button = new Button { Content = HotkeyDisplay(owner[key]?.GetValue<string>()), Background = new SolidColorBrush(Color.FromArgb(24, 255, 255, 255)), Foreground = Brushes.White, HorizontalContentAlignment = HorizontalAlignment.Center };
+        var grid = new Grid(); grid.ColumnDefinitions.Add(new ColumnDefinition { MinWidth = 112 }); grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(38) });
+        var initialBinding = owner[key]?.GetValue<string>();
+        var button = new Button { Content = HotkeyDisplay(initialBinding), ToolTip = HotkeyDisplay(initialBinding), MinWidth = 112, Padding = new Thickness(8, 6, 8, 6), Background = new SolidColorBrush(Color.FromArgb(24, 255, 255, 255)), Foreground = Brushes.White, HorizontalContentAlignment = HorizontalAlignment.Center };
         var capturing = false;
         button.Click += (_, _) => { capturing = true; button.Content = "请按下组合键…"; button.Focus(); Keyboard.Focus(button); };
         button.PreviewKeyDown += (_, e) =>
         {
             if (!capturing) return; e.Handled = true; var pressed = e.Key == Key.System ? e.SystemKey : e.Key;
             if (pressed is Key.LeftCtrl or Key.RightCtrl or Key.LeftShift or Key.RightShift or Key.LeftAlt or Key.RightAlt) { button.Content = "继续按主键…"; return; }
-            if (pressed == Key.Escape) { capturing = false; button.Content = HotkeyDisplay(owner[key]?.GetValue<string>()); return; }
+            if (pressed == Key.Escape) { capturing = false; button.Content = HotkeyDisplay(owner[key]?.GetValue<string>()); button.ToolTip = button.Content; return; }
             var parts = new List<string>();
             if ((Keyboard.Modifiers & ModifierKeys.Control) != 0) parts.Add("LEFT_CONTROL");
             if ((Keyboard.Modifiers & ModifierKeys.Shift) != 0) parts.Add("LEFT_SHIFT");
             if ((Keyboard.Modifiers & ModifierKeys.Alt) != 0) parts.Add("LEFT_ALT");
             var main = ToMaliKey(pressed); if (!parts.Contains(main, StringComparer.OrdinalIgnoreCase)) parts.Add(main);
-            var binding = string.Join(',', parts); owner[key] = binding; button.Content = HotkeyDisplay(binding); capturing = false; MarkModConfigDraftChanged();
+            var binding = string.Join(',', parts); owner[key] = binding; button.Content = HotkeyDisplay(binding); button.ToolTip = button.Content; capturing = false; MarkModConfigDraftChanged();
         };
         grid.Children.Add(button);
         var clear = new Button { Content = "×", ToolTip = "清除热键", Padding = new Thickness(0), Margin = new Thickness(6, 0, 0, 0), Background = new SolidColorBrush(Color.FromRgb(58, 58, 58)) };
-        clear.Click += (_, _) => { owner[key] = ""; button.Content = "NONE"; capturing = false; MarkModConfigDraftChanged(); }; Grid.SetColumn(clear, 1); grid.Children.Add(clear); return grid;
+        clear.Click += (_, _) => { owner[key] = ""; button.Content = "NONE"; button.ToolTip = "NONE"; capturing = false; MarkModConfigDraftChanged(); }; Grid.SetColumn(clear, 1); grid.Children.Add(clear); return grid;
     }
 
     private static string HotkeyDisplay(string? value) => string.IsNullOrWhiteSpace(value) ? "NONE" : value.Replace("LEFT_CONTROL", "Ctrl").Replace("RIGHT_CONTROL", "RCtrl").Replace("LEFT_SHIFT", "Shift").Replace("RIGHT_SHIFT", "RShift").Replace("LEFT_ALT", "Alt").Replace("RIGHT_ALT", "RAlt").Replace("KP_", "Num ").Replace(',', '+');
@@ -906,25 +910,25 @@ public partial class MainWindow
         if (modConfigProfileCombo == null) return; Directory.CreateDirectory(ModConfigProfilesRoot);
         var names = Directory.EnumerateDirectories(ModConfigProfilesRoot).Select(Path.GetFileName).Where(x => !string.IsNullOrWhiteSpace(x)).Cast<string>().Order().ToList();
         if (!names.Contains(settings.ActiveModConfigProfile)) names.Insert(0, settings.ActiveModConfigProfile);
-        switchingModConfigProfile = true; modConfigProfileCombo.ItemsSource = names.Distinct(StringComparer.OrdinalIgnoreCase).ToList(); modConfigProfileCombo.SelectedItem = settings.ActiveModConfigProfile; switchingModConfigProfile = false;
+        EnsureModConfigScopes(settings.ActiveModConfigProfile); switchingModConfigProfile = true; modConfigProfileCombo.ItemsSource = names.Distinct(StringComparer.OrdinalIgnoreCase).ToList(); modConfigProfileCombo.SelectedItem = settings.ActiveModConfigProfile; switchingModConfigProfile = false; RefreshModConfigScopeSelector();
     }
 
     private void ModConfigProfile_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
         if (switchingModConfigProfile || modConfigProfileCombo?.SelectedItem is not string name || name == settings.ActiveModConfigProfile) return;
         if (modConfigProfileDirty && AppDialog.Show(this, "当前 Mod 配置有尚未保存的修改。切换后这些草稿会丢失，仍要切换吗？", "未保存的 Mod 配置草稿", MessageBoxButton.YesNo, MessageBoxImage.Warning) != MessageBoxResult.Yes) { switchingModConfigProfile = true; modConfigProfileCombo.SelectedItem = settings.ActiveModConfigProfile; switchingModConfigProfile = false; return; }
-        modConfigProfileDirty = false; settings.ActiveModConfigProfile = name; SettingsStore.Save(settings); RefreshModConfigPage();
+        modConfigProfileDirty = false; settings.ActiveModConfigProfile = name; EnsureModConfigScopes(name); SettingsStore.Save(settings); RefreshModConfigScopeSelector(true); RefreshModConfigPage();
     }
 
     private void AddModConfigProfile_Click(object sender, RoutedEventArgs e)
     {
-        var name = PromptForProfileName("新建 Mod 配置", "新的 Mod 配置"); if (string.IsNullOrWhiteSpace(name)) return; settings.ActiveModConfigProfile = name; SettingsStore.Save(settings); RefreshModConfigProfiles(); RefreshModConfigPage(); StatusText.Text = "新 Mod 配置尚未保存";
+        var name = PromptForProfileName("新建 Mod 配置", "新的 Mod 配置"); if (string.IsNullOrWhiteSpace(name)) return; settings.ActiveModConfigProfile = name; EnsureModConfigScopes(name); SettingsStore.Save(settings); RefreshModConfigProfiles(); RefreshModConfigScopeSelector(); RefreshModConfigPage(); StatusText.Text = "新 Mod 配置尚未保存";
     }
 
     private void RenameModConfigProfile_Click(object sender, RoutedEventArgs e)
     {
         var old = settings.ActiveModConfigProfile; var name = PromptForProfileName("重命名 Mod 配置", old); if (string.IsNullOrWhiteSpace(name) || name == old) return;
-        var oldPath = Path.Combine(ModConfigProfilesRoot, SafeProfileName(old)); var newPath = Path.Combine(ModConfigProfilesRoot, SafeProfileName(name)); if (Directory.Exists(oldPath) && !Directory.Exists(newPath)) Directory.Move(oldPath, newPath); settings.ActiveModConfigProfile = name; SettingsStore.Save(settings); RefreshModConfigProfiles();
+        var oldPath = Path.Combine(ModConfigProfilesRoot, SafeProfileName(old)); var newPath = Path.Combine(ModConfigProfilesRoot, SafeProfileName(name)); if (Directory.Exists(oldPath) && !Directory.Exists(newPath)) Directory.Move(oldPath, newPath); if (settings.ModConfigScopes.Remove(old, out var scopes)) settings.ModConfigScopes[name] = scopes; if (settings.ActiveModConfigScopeIds.Remove(old, out var scopeId)) settings.ActiveModConfigScopeIds[name] = scopeId; settings.ActiveModConfigProfile = name; SettingsStore.Save(settings); RefreshModConfigProfiles(); RefreshModConfigScopeSelector();
     }
 
     private void DeleteModConfigProfile_Click(object sender, RoutedEventArgs e)
@@ -938,7 +942,7 @@ public partial class MainWindow
         {
             var path = Path.Combine(ModConfigProfilesRoot, SafeProfileName(name));
             if (Directory.Exists(path)) { MakeTreeWritable(path); Directory.Delete(path, true); }
-            settings.ActiveModConfigProfile = names.First(candidate => !candidate.Equals(name, StringComparison.OrdinalIgnoreCase)); SettingsStore.Save(settings); RefreshModConfigProfiles(); RefreshModConfigPage(); StatusText.Text = $"已删除 Mod 配置：{name}";
+            settings.ModConfigScopes.Remove(name); settings.ActiveModConfigScopeIds.Remove(name); settings.ActiveModConfigProfile = names.First(candidate => !candidate.Equals(name, StringComparison.OrdinalIgnoreCase)); SettingsStore.Save(settings); RefreshModConfigProfiles(); RefreshModConfigScopeSelector(true); RefreshModConfigPage(); StatusText.Text = $"已删除 Mod 配置：{name}";
         }
         catch (Exception ex)
         {
@@ -951,7 +955,7 @@ public partial class MainWindow
         if (modConfigDrafts.Count == 0) return;
         try
         {
-            var root = Path.Combine(ModConfigProfilesRoot, SafeProfileName(settings.ActiveModConfigProfile)); Directory.CreateDirectory(root);
+            var root = EditingModConfigProfileRoot; Directory.CreateDirectory(root);
             var environment = DetectInstanceEnvironment();
             var manifest = new ModConfigProfileManifest { MinecraftVersion = environment.Version, Loader = environment.Loader };
             foreach (var draft in modConfigDrafts)
@@ -1030,7 +1034,7 @@ public partial class MainWindow
 
     private void LoadModConfigProfileDraft()
     {
-        var root = Path.Combine(ModConfigProfilesRoot, SafeProfileName(settings.ActiveModConfigProfile));
+        var root = EditingModConfigProfileRoot;
         var profileExists = Directory.Exists(root);
         modConfigViewCache.Clear();
         foreach (var draft in modConfigDrafts)
@@ -1066,7 +1070,7 @@ public partial class MainWindow
     private void PreviewModConfigMigration_Click(object sender, RoutedEventArgs e)
     {
         if (string.IsNullOrWhiteSpace(instance)) return;
-        var profileRoot = Path.Combine(ModConfigProfilesRoot, SafeProfileName(settings.ActiveModConfigProfile)); var manifest = ReadModConfigManifest(profileRoot); var environment = DetectInstanceEnvironment();
+        var profileRoot = ResolvedModConfigProfileRoot; var manifest = ReadModConfigManifest(profileRoot); var environment = DetectInstanceEnvironment();
         var exact = 0; var semantic = 0; var structured = 0; var skipped = 0; var details = new List<string>();
         foreach (var draft in modConfigDrafts)
         {
@@ -1081,7 +1085,7 @@ public partial class MainWindow
             if (files.Any(file => Path.GetExtension(file).Equals(".json", StringComparison.OrdinalIgnoreCase) || new[] { ".toml", ".properties", ".cfg", ".conf", ".yml", ".yaml" }.Contains(Path.GetExtension(file), StringComparer.OrdinalIgnoreCase))) { structured++; details.Add($"↔ {draft.Definition.DisplayName}：按目标现有字段合并"); }
             else { skipped++; details.Add($"○ {draft.Definition.DisplayName}：没有可安全迁移的结构化文件"); }
         }
-        var header = $"目标：Minecraft {environment.Version} / {environment.Loader}\n完全匹配 {exact} · 语义转换 {semantic} · 结构合并 {structured} · 跳过 {skipped}";
+        var scope = ResolveModConfigScope(); var header = $"目标：Minecraft {environment.Version} / {environment.Loader}\n匹配范围：{scope.Name}（{CompatibilityScopes.Describe(scope)}）\n完全匹配 {exact} · 语义转换 {semantic} · 结构合并 {structured} · 跳过 {skipped}";
         AppDialog.Show(this, header + "\n\n" + string.Join("\n", details.Take(20)) + (details.Count > 20 ? $"\n…另有 {details.Count - 20} 项" : ""), "迁移兼容性检查", MessageBoxButton.OK, skipped > 0 ? MessageBoxImage.Warning : MessageBoxImage.Information);
     }
 
@@ -1093,7 +1097,7 @@ public partial class MainWindow
         {
             EnsureMinecraftClientClosedBeforeApplying();
             snapshot = new ModConfigApplySnapshot(Path.Combine(SettingsStore.Root, "backups", $"mod-config-{DateTime.Now:yyyyMMdd-HHmmss}")); activeModConfigSnapshot = snapshot;
-            var profileRoot = Path.Combine(ModConfigProfilesRoot, SafeProfileName(settings.ActiveModConfigProfile)); var applied = 0; var merged = 0; var skipped = 0;
+            var profileRoot = ResolvedModConfigProfileRoot; var applied = 0; var merged = 0; var skipped = 0;
             var manifest = ReadModConfigManifest(profileRoot);
             var targetEnvironment = DetectInstanceEnvironment();
             foreach (var draft in drafts)
@@ -1149,8 +1153,8 @@ public partial class MainWindow
                 }
                 if (knownModApplied) applied++;
             }
-            StatusText.Text = $"已适配 {applied} 个 Mod 配置；字段合并 {merged} 个文件，跳过 {skipped} 个不兼容文件";
-            ShowToast("Mod 配置已适配", skipped == 0 ? $"共 {applied} 个 Mod。" : $"{applied} 个 Mod，跳过 {skipped} 个不兼容文件。", true, 3600);
+            var selectedScope = ResolveModConfigScope(); StatusText.Text = $"已按“{selectedScope.Name}”适配 {applied} 个 Mod 配置；字段合并 {merged} 个文件，跳过 {skipped} 个不兼容文件";
+            ShowToast("Mod 配置已适配", skipped == 0 ? $"{selectedScope.Name} · 共 {applied} 个 Mod。" : $"{selectedScope.Name} · {applied} 个 Mod，跳过 {skipped} 个不兼容文件。", true, 3600);
             activeModConfigSnapshot = null;
         }
         catch (Exception ex)

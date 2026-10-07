@@ -95,7 +95,22 @@ public partial class MainWindow
         restore.Click += async (_, _) =>
         {
             if (AppDialog.Show(dialog, "恢复会覆盖本机已保存的资源包、键位、Mod 收藏和 Mod 配置方案。\n\n恢复前会在本机自动创建安全备份，是否继续？", "确认恢复云端备份", MessageBoxButton.YesNo, MessageBoxImage.Warning) != MessageBoxResult.Yes) return;
-            await RunAsync(restore, "正在下载并恢复备份…", async () => { SaveLocal(); var archive = await CloudBackupService.DownloadAsync(Current(), CancellationToken.None); var safety = CloudBackupService.Restore(archive, settings); AppLog.Info("WebDAV 备份恢复完成"); status.Text = "恢复完成，重启软件后生效。"; AppDialog.Show(dialog, $"云端配置已恢复。请关闭并重新打开软件以载入配置。\n\n恢复前的本机安全备份：\n{safety}", "恢复完成"); });
+            await RunAsync(restore, "正在下载并检查备份…", async () =>
+            {
+                SaveLocal(); var archive = await CloudBackupService.DownloadAsync(Current(), CancellationToken.None); var contents = CloudBackupService.InspectContents(archive);
+                string? packDestination = null; string? shaderDestination = null;
+                if (contents.HasPackLibrary)
+                {
+                    packDestination = PickFolder("选择这台电脑的资源包固定库（不会使用备份机原路径）");
+                    if (string.IsNullOrWhiteSpace(packDestination)) { File.Delete(archive); status.Text = "已取消恢复：尚未选择本机资源包库。"; return; }
+                }
+                if (contents.HasShaderLibrary)
+                {
+                    shaderDestination = PickFolder("选择这台电脑的光影包固定库（不会使用备份机原路径）");
+                    if (string.IsNullOrWhiteSpace(shaderDestination)) { File.Delete(archive); status.Text = "已取消恢复：尚未选择本机光影库。"; return; }
+                }
+                status.Text = "正在恢复便携配置与固定库…"; var safety = CloudBackupService.Restore(archive, settings, packDestination, shaderDestination); AppLog.Info("WebDAV 备份恢复完成"); status.Text = "恢复完成，重启软件后生效。"; AppDialog.Show(dialog, $"云端配置已恢复。固定库已写入刚刚选择的本机目录，不会使用备份电脑的绝对路径。\n\n请关闭并重新打开软件以载入配置。\n恢复前的本机安全备份：\n{safety}", "恢复完成");
+            });
         };
         save.Click += (_, _) => { try { SaveLocal(); status.Text = "WebDAV 设置已保存在本机，密码已使用当前 Windows 用户加密。"; } catch (Exception ex) { AppDialog.Show(dialog, ex.Message, "保存失败", MessageBoxButton.OK, MessageBoxImage.Error); } };
         AppDialog.SetBody(dialog, root); dialog.ShowDialog();

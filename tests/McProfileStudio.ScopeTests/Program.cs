@@ -1,0 +1,22 @@
+using McProfileStudio;
+
+static void Assert(bool condition, string message)
+{
+    if (!condition) throw new InvalidOperationException(message);
+    Console.WriteLine("PASS: " + message);
+}
+
+var legacy = new CompatibilityScope { Id = "default", Name = "全部版本" };
+var oldPack = new CompatibilityScope { Name = "1.18～1.20", MinVersion = "1.18.x", MaxVersion = "1.20.x" };
+var newPack = new CompatibilityScope { Name = "1.21", MinVersion = "1.21.x", MaxVersion = "1.21.x" };
+Assert(CompatibilityScopes.Matches(oldPack, "1.18.2"), "1.18.2 matches 1.18.x～1.20.x");
+Assert(CompatibilityScopes.Matches(oldPack, "1.20.6"), "1.20.6 matches wildcard upper bound");
+Assert(!CompatibilityScopes.Matches(oldPack, "1.21.1"), "1.21.1 does not match old range");
+Assert(CompatibilityScopes.Resolve([legacy, oldPack, newPack], "1.21.1").Name == "1.21", "specific range wins over fallback");
+
+var forge = new CompatibilityScope { Name = "Forge", MinVersion = "1.20.x", MaxVersion = "1.20.x", Loaders = ["Forge"] };
+var fabric = new CompatibilityScope { Name = "Fabric", MinVersion = "1.20.x", MaxVersion = "1.20.x", Loaders = ["Fabric"] };
+Assert(CompatibilityScopes.Matches(forge, "1.20.1", "Forge"), "Forge scope matches Forge");
+Assert(!CompatibilityScopes.Matches(forge, "1.20.1", "Fabric"), "Forge scope rejects Fabric");
+Assert(!CompatibilityScopes.Overlaps(forge, fabric), "same version with different loaders is not ambiguous");
+Assert(CompatibilityScopes.Overlaps(oldPack, new CompatibilityScope { MinVersion = "1.20.x", MaxVersion = "1.21.x" }), "overlapping ranges are detected");

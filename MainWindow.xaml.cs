@@ -328,7 +328,7 @@ public partial class MainWindow : Window
             var item = new KeyBindingItem { OptionKey = pair.Key, DisplayName = string.IsNullOrWhiteSpace(chinese) ? english : chinese, FunctionEnglish = english, FunctionChinese = chinese, DisplayLanguage = settings.KeyDisplayLanguage, ModId = mod.Id, ModDisplayName = mod.DisplayName, IsLibrary = mod.IsLibrary, OriginalValue = pair.Value, Value = pair.Value, Remember = includeInDraft };
             if (!includeInDraft && settings.KeyProfiles.TryGetValue(settings.ActiveKeyProfile, out var keyProfile)) { if (TryGetProfileBinding(keyProfile, item, out var saved)) { item.Value = saved; item.Remember = true; } item.CountsAsConflict = !keyProfile.ConflictExcluded.Contains(pair.Key); } allKeys.Add(item);
         }
-        ModFilter.ItemsSource = new[] { "全部有键位的 Mod" }.Concat(allKeys.GroupBy(k => k.ModId).Select(g => g.First().ModDisplayName).Order()).ToList(); ModFilter.SelectedIndex = 0; RefreshKeyList(); BuildKeyboard(); RefreshModConfigPage(); RefreshSummary(); DetectAndSelectInstanceEnvironment(true); RefreshFavoriteModStatus(); StatusText.Text = $"已导入 {Path.GetFileName(instance)}：{allKeys.Select(k => k.ModId).Distinct().Count()} 个有键位 Mod，{allKeys.Count} 个键位";
+        ModFilter.ItemsSource = new[] { "全部有键位的 Mod" }.Concat(allKeys.GroupBy(k => k.ModId).Select(g => g.First().ModDisplayName).Order()).ToList(); ModFilter.SelectedIndex = 0; RefreshKeyList(); BuildKeyboard(); RefreshPackRangeSelector(true); ReloadLibraries(); RefreshModConfigScopeSelector(true); RefreshModConfigPage(); RefreshSummary(); DetectAndSelectInstanceEnvironment(true); RefreshFavoriteModStatus(); StatusText.Text = $"已导入 {Path.GetFileName(instance)}：{allKeys.Select(k => k.ModId).Distinct().Count()} 个有键位 Mod，{allKeys.Count} 个键位";
     }
     private static string Humanize(string key) => key.Replace("key_key.", "").Replace("key_", "").Replace('.', ' ').Replace('_', ' ');
     private void PickPackLibrary_Click(object sender, RoutedEventArgs e) { var p = PickFolder("选择固定资源包存放目录"); if (p != null) { settings.PackLibrary = p; SaveAndReload(); } }
@@ -350,7 +350,7 @@ public partial class MainWindow : Window
 
     private void ApplyLibrarySnapshot(List<PackItem> scannedPacks, List<PackItem> scannedShaders)
     {
-        var profile = settings.PackProfiles[settings.ActivePackProfile]; var order = profile.PackOrder.Select((n, i) => (n, i)).ToDictionary(x => x.n, x => x.i, StringComparer.OrdinalIgnoreCase); var sorted = scannedPacks.OrderBy(p => order.TryGetValue(p.Name, out var i) ? i : int.MaxValue).ThenBy(p => p.Name).ToList(); packs.Clear(); foreach (var p in sorted) { p.Enabled = profile.EnabledPacks.Contains(p.Name, StringComparer.OrdinalIgnoreCase); packs.Add(p); }
+        var profile = settings.PackProfiles[settings.ActivePackProfile]; var range = EditingPackRange(profile); var order = range.PackOrder.Select((n, i) => (n, i)).ToDictionary(x => x.n, x => x.i, StringComparer.OrdinalIgnoreCase); var sorted = scannedPacks.OrderBy(p => order.TryGetValue(p.Name, out var i) ? i : int.MaxValue).ThenBy(p => p.Name).ToList(); packs.Clear(); foreach (var p in sorted) { p.Enabled = range.EnabledPacks.Contains(p.Name, StringComparer.OrdinalIgnoreCase); packs.Add(p); }
         shaders.Clear(); foreach (var shader in scannedShaders) shaders.Add(shader); ShaderList.SelectedItem = shaders.FirstOrDefault(s => s.Name.Equals(draftSelectedShader, StringComparison.OrdinalIgnoreCase)); BeginOnlineShaderPreviewRefresh(); PackPathText.Text = string.IsNullOrWhiteSpace(settings.PackLibrary) ? "尚未设置" : settings.PackLibrary; RefreshPackColumns();
     }
 
@@ -459,20 +459,20 @@ public partial class MainWindow : Window
         StopPackDragAutoScroll(); if (e.Data.GetData(typeof(PackItem)) is not PackItem || sender is not ListBox) return;
         e.Effects = DragDropEffects.Move; e.Handled = true; StatusText.Text = "资源包配置已修改（尚未保存）";
     }
-    private void SavePackProfile() { var profile = settings.PackProfiles[settings.ActivePackProfile]; profile.PackOrder = packs.Select(p => p.Name).ToList(); profile.EnabledPacks = packs.Where(p => p.Enabled).Select(p => p.Name).ToList(); settings.PackOrder = profile.PackOrder.ToList(); settings.EnabledPacks = profile.EnabledPacks.ToList(); settings.SelectedShader = draftSelectedShader; SettingsStore.Save(settings); if (packProfileCombo != null) packProfileCombo.ToolTip = null; StatusText.Text = $"已保存资源包配置：{settings.ActivePackProfile}"; }
+    private void SavePackProfile() { var profile = settings.PackProfiles[settings.ActivePackProfile]; var range = EditingPackRange(profile); range.PackOrder = packs.Select(p => p.Name).ToList(); range.EnabledPacks = packs.Where(p => p.Enabled).Select(p => p.Name).ToList(); profile.PackOrder = range.PackOrder.ToList(); profile.EnabledPacks = range.EnabledPacks.ToList(); settings.PackOrder = range.PackOrder.ToList(); settings.EnabledPacks = range.EnabledPacks.ToList(); settings.SelectedShader = draftSelectedShader; SettingsStore.Save(settings); if (packProfileCombo != null) packProfileCombo.ToolTip = null; StatusText.Text = $"已保存资源包配置：{settings.ActivePackProfile} / {range.Name}"; }
 
     private void RefreshPackLibrary()
     {
         var draft = packs.Select((item, index) => (item.Name, item.Enabled, index)).ToDictionary(x => x.Name, StringComparer.OrdinalIgnoreCase);
         var oldNames = draft.Keys.ToHashSet(StringComparer.OrdinalIgnoreCase); var scanned = new ObservableCollection<PackItem>(); LoadPacks(settings.PackLibrary, scanned, false);
-        var profile = settings.PackProfiles[settings.ActivePackProfile]; var savedOrder = profile.PackOrder.Select((name, index) => (name, index)).ToDictionary(x => x.name, x => x.index, StringComparer.OrdinalIgnoreCase);
+        var profile = settings.PackProfiles[settings.ActivePackProfile]; var range = EditingPackRange(profile); var savedOrder = range.PackOrder.Select((name, index) => (name, index)).ToDictionary(x => x.name, x => x.index, StringComparer.OrdinalIgnoreCase);
         var ordered = scanned.OrderBy(item => draft.TryGetValue(item.Name, out var state) ? 0 : savedOrder.ContainsKey(item.Name) ? 1 : 2)
             .ThenBy(item => draft.TryGetValue(item.Name, out var state) ? state.index : savedOrder.TryGetValue(item.Name, out var index) ? index : int.MaxValue)
             .ThenBy(item => item.Name, StringComparer.OrdinalIgnoreCase).ToList();
         packs.Clear();
         foreach (var item in ordered)
         {
-            item.Enabled = draft.TryGetValue(item.Name, out var state) ? state.Enabled : profile.EnabledPacks.Contains(item.Name, StringComparer.OrdinalIgnoreCase);
+            item.Enabled = draft.TryGetValue(item.Name, out var state) ? state.Enabled : range.EnabledPacks.Contains(item.Name, StringComparer.OrdinalIgnoreCase);
             packs.Add(item);
         }
         RefreshPackColumns(); RefreshSummary();
@@ -487,7 +487,8 @@ public partial class MainWindow : Window
         PacksPage.ColumnDefinitions.Add(new() { Width = new GridLength(1, GridUnitType.Star) }); PacksPage.ColumnDefinitions.Add(new() { Width = new GridLength(1, GridUnitType.Star) });
         var profileBar = new StackPanel { Margin = new Thickness(0, 0, 0, 14) };
         var profileTools = new WrapPanel(); profileTools.Children.Add(new TextBlock { Text = "资源包配置", Foreground = Brushes.White, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 12, 0), FontSize = 15 }); packProfileCombo = new ComboBox { Width = 210, ItemsSource = settings.PackProfiles.Keys.Order().ToList(), SelectedItem = settings.ActivePackProfile }; packProfileCombo.SelectionChanged += PackProfile_SelectionChanged; var add = new Button { Content = "新建", Margin = new Thickness(8, 0, 0, 0) }; add.Click += AddPackProfile_Click; var rename = new Button { Content = "重命名", Background = new SolidColorBrush(Color.FromRgb(58, 58, 58)), Margin = new Thickness(6, 0, 0, 0) }; rename.Click += RenamePackProfile_Click; var delete = new Button { Content = "删除", Background = new SolidColorBrush(Color.FromRgb(112, 48, 56)), Margin = new Thickness(6, 0, 0, 0) }; delete.Click += DeletePackProfile_Click; var saveProfile = new Button { Content = "保存配置", Margin = new Thickness(6, 0, 0, 0) }; saveProfile.Click += (_, _) => SavePackProfile(); profileTools.Children.Add(packProfileCombo); profileTools.Children.Add(add); profileTools.Children.Add(rename); profileTools.Children.Add(delete); profileTools.Children.Add(saveProfile);
-        var batchTools = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Left, Margin = new Thickness(0, 9, 0, 0) }; var import = new Button { Content = "导入 options.txt", Padding = new Thickness(13, 7, 13, 7), Background = new SolidColorBrush(Color.FromRgb(58, 58, 58)), Margin = new Thickness(0, 0, 8, 0) }; import.Click += ImportPackOptions_Click; var refresh = new Button { Content = "刷新资源包", Padding = new Thickness(13, 7, 13, 7), Background = new SolidColorBrush(Color.FromRgb(58, 58, 58)), Margin = new Thickness(0, 0, 8, 0), ToolTip = "重新扫描资源包目录，并保留当前草稿的排序与启用状态" }; refresh.Click += (_, _) => RefreshPackLibrary(); var enable = new Button { Content = "全部启用 →", Padding = new Thickness(13, 7, 13, 7) }; enable.Click += (_, _) => { foreach (var p in packs) p.Enabled = true; RefreshPackColumns(); StatusText.Text = "资源包配置已修改（尚未保存）"; }; var disable = new Button { Content = "全部关闭", Padding = new Thickness(13, 7, 13, 7), Background = new SolidColorBrush(Color.FromRgb(58, 58, 58)), Margin = new Thickness(8, 0, 0, 0) }; disable.Click += (_, _) => { foreach (var p in packs) p.Enabled = false; RefreshPackColumns(); StatusText.Text = "资源包配置已修改（尚未保存）"; }; batchTools.Children.Add(import); batchTools.Children.Add(refresh); batchTools.Children.Add(enable); batchTools.Children.Add(disable); profileBar.Children.Add(profileTools); profileBar.Children.Add(batchTools); Grid.SetColumnSpan(profileBar, 2); PacksPage.Children.Add(profileBar);
+        var rangeTools = new WrapPanel { Margin = new Thickness(0, 9, 0, 0) }; rangeTools.Children.Add(new TextBlock { Text = "适用版本", Foreground = Brushes.White, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 12, 0) }); packRangeCombo = new ComboBox { Width = 260 }; packRangeCombo.SelectionChanged += PackRange_SelectionChanged; var addRange = new Button { Content = "添加范围", Margin = new Thickness(8, 0, 0, 0) }; addRange.Click += AddPackRange_Click; var deleteRange = new Button { Content = "删除范围", Background = new SolidColorBrush(Color.FromRgb(112, 48, 56)), Margin = new Thickness(6, 0, 0, 0) }; deleteRange.Click += DeletePackRange_Click; rangeTools.Children.Add(packRangeCombo); rangeTools.Children.Add(addRange); rangeTools.Children.Add(deleteRange);
+        var batchTools = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Left, Margin = new Thickness(0, 9, 0, 0) }; var import = new Button { Content = "导入 options.txt", Padding = new Thickness(13, 7, 13, 7), Background = new SolidColorBrush(Color.FromRgb(58, 58, 58)), Margin = new Thickness(0, 0, 8, 0) }; import.Click += ImportPackOptions_Click; var refresh = new Button { Content = "刷新资源包", Padding = new Thickness(13, 7, 13, 7), Background = new SolidColorBrush(Color.FromRgb(58, 58, 58)), Margin = new Thickness(0, 0, 8, 0), ToolTip = "重新扫描资源包目录，并保留当前草稿的排序与启用状态" }; refresh.Click += (_, _) => RefreshPackLibrary(); var enable = new Button { Content = "全部启用 →", Padding = new Thickness(13, 7, 13, 7) }; enable.Click += (_, _) => { foreach (var p in packs) p.Enabled = true; RefreshPackColumns(); StatusText.Text = "资源包配置已修改（尚未保存）"; }; var disable = new Button { Content = "全部关闭", Padding = new Thickness(13, 7, 13, 7), Background = new SolidColorBrush(Color.FromRgb(58, 58, 58)), Margin = new Thickness(8, 0, 0, 0) }; disable.Click += (_, _) => { foreach (var p in packs) p.Enabled = false; RefreshPackColumns(); StatusText.Text = "资源包配置已修改（尚未保存）"; }; batchTools.Children.Add(import); batchTools.Children.Add(refresh); batchTools.Children.Add(enable); batchTools.Children.Add(disable); profileBar.Children.Add(profileTools); profileBar.Children.Add(rangeTools); profileBar.Children.Add(batchTools); Grid.SetColumnSpan(profileBar, 2); PacksPage.Children.Add(profileBar); RefreshPackRangeSelector();
         disabledPackList = CreatePackColumn("未应用的资源包", template, false, 0); enabledPackList = CreatePackColumn("已应用的资源包（上方优先）", template, true, 1);
     }
     private ListBox CreatePackColumn(string title, DataTemplate template, bool enabled, int column)
@@ -672,6 +673,7 @@ public partial class MainWindow : Window
     {
         if (settings.PackProfiles.Count == 0) settings.PackProfiles["默认配置"] = new PackProfile { PackOrder = settings.PackOrder.ToList(), EnabledPacks = settings.EnabledPacks.ToList() };
         if (!settings.PackProfiles.ContainsKey(settings.ActivePackProfile)) settings.ActivePackProfile = settings.PackProfiles.Keys.First();
+        foreach (var profile in settings.PackProfiles.Values) EnsurePackVersionRanges(profile);
     }
     private void EnsureKeyProfiles()
     {
@@ -729,14 +731,14 @@ public partial class MainWindow : Window
     {
         if (switchingProfile || packProfileCombo?.SelectedItem is not string name || name == settings.ActivePackProfile) return;
         if (IsPackProfileDirty() && AppDialog.Show(this, "当前资源包配置有尚未保存的修改。切换后这些草稿会丢失，仍要切换吗？", "未保存的资源包草稿", MessageBoxButton.YesNo, MessageBoxImage.Warning) != MessageBoxResult.Yes) { switchingProfile = true; packProfileCombo.SelectedItem = settings.ActivePackProfile; switchingProfile = false; return; }
-        settings.ActivePackProfile = name; ReloadLibraries(); StatusText.Text = $"已切换资源包配置：{name}";
+        settings.ActivePackProfile = name; RefreshPackRangeSelector(true); ReloadLibraries(); StatusText.Text = $"已切换资源包配置：{name}";
     }
 
     private bool IsPackProfileDirty()
     {
         if (!settings.PackProfiles.TryGetValue(settings.ActivePackProfile, out var profile)) return packs.Count > 0;
-        return !profile.PackOrder.SequenceEqual(packs.Select(item => item.Name), StringComparer.OrdinalIgnoreCase)
-            || !profile.EnabledPacks.ToHashSet(StringComparer.OrdinalIgnoreCase).SetEquals(packs.Where(item => item.Enabled).Select(item => item.Name));
+        var range = EditingPackRange(profile); return !range.PackOrder.SequenceEqual(packs.Select(item => item.Name), StringComparer.OrdinalIgnoreCase)
+            || !range.EnabledPacks.ToHashSet(StringComparer.OrdinalIgnoreCase).SetEquals(packs.Where(item => item.Enabled).Select(item => item.Name));
     }
 
     private bool IsKeyProfileDirty()
@@ -762,7 +764,7 @@ public partial class MainWindow : Window
         var name = settings.ActivePackProfile; if (AppDialog.Show(this, $"确定删除资源包配置“{name}”吗？", "删除资源包配置", MessageBoxButton.YesNo, MessageBoxImage.Warning) != MessageBoxResult.Yes) return;
         settings.PackProfiles.Remove(name); settings.ActivePackProfile = settings.PackProfiles.Keys.Order().First(); var profile = settings.PackProfiles[settings.ActivePackProfile]; settings.PackOrder = profile.PackOrder.ToList(); settings.EnabledPacks = profile.EnabledPacks.ToList(); SettingsStore.Save(settings); RefreshProfileSelector(); ReloadLibraries(); StatusText.Text = $"已删除资源包配置：{name}";
     }
-    private void RefreshProfileSelector() { if (packProfileCombo == null) return; switchingProfile = true; packProfileCombo.ItemsSource = settings.PackProfiles.Keys.Order().ToList(); packProfileCombo.SelectedItem = settings.ActivePackProfile; switchingProfile = false; }
+    private void RefreshProfileSelector() { if (packProfileCombo == null) return; switchingProfile = true; packProfileCombo.ItemsSource = settings.PackProfiles.Keys.Order().ToList(); packProfileCombo.SelectedItem = settings.ActivePackProfile; switchingProfile = false; RefreshPackRangeSelector(); }
 
     private string? PromptForProfileName(string title, string initial)
     {
@@ -929,7 +931,7 @@ public partial class MainWindow : Window
             }
         }
     }
-    private string ApplyResourcePacksOnly() { MinecraftConfig.MirrorLibrary(settings.PackLibrary, Path.Combine(instance, "resourcepacks")); MinecraftConfig.PatchOptions(instance, new Dictionary<string, string>(StringComparer.Ordinal) { ["resourcePacks"] = MinecraftConfig.ResourcePackValue(instance, packs) }); return "资源包"; }
+    private string ApplyResourcePacksOnly() { MinecraftConfig.MirrorLibrary(settings.PackLibrary, Path.Combine(instance, "resourcepacks")); var profile = settings.PackProfiles[settings.ActivePackProfile]; var range = ResolvePackRange(profile); var resolved = packs.Select(item => new PackItem { Name = item.Name, FullPath = item.FullPath, Enabled = range.EnabledPacks.Contains(item.Name, StringComparer.OrdinalIgnoreCase) }).OrderBy(item => { var index = range.PackOrder.FindIndex(name => name.Equals(item.Name, StringComparison.OrdinalIgnoreCase)); return index < 0 ? int.MaxValue : index; }).ToList(); MinecraftConfig.PatchOptions(instance, new Dictionary<string, string>(StringComparer.Ordinal) { ["resourcePacks"] = MinecraftConfig.ResourcePackValue(instance, resolved) }); return $"资源包（{range.Name}）"; }
     private string ApplyShadersOnly()
     {
         if (string.IsNullOrWhiteSpace(draftSelectedShader)) throw new InvalidOperationException("当前没有选择要应用的光影包。");

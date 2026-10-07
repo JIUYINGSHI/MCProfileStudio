@@ -83,6 +83,8 @@ public class AppSettings
     public string WebDavRemotePath { get; set; } = "MCProfileStudio";
     public DateTimeOffset? LastWebDavBackup { get; set; }
     public bool IncludeLibrariesInCloudBackup { get; set; }
+    public Dictionary<string, List<CompatibilityScope>> ModConfigScopes { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+    public Dictionary<string, string> ActiveModConfigScopeIds { get; set; } = new(StringComparer.OrdinalIgnoreCase);
 }
 
 public class FavoriteModProfile
@@ -131,6 +133,24 @@ public class ResolvedModDependency
 }
 
 public class PackProfile
+{
+    public List<string> PackOrder { get; set; } = [];
+    public List<string> EnabledPacks { get; set; } = [];
+    public List<PackVersionRange> VersionRanges { get; set; } = [];
+    public string ActiveRangeId { get; set; } = "";
+}
+
+public class CompatibilityScope
+{
+    public string Id { get; set; } = Guid.NewGuid().ToString("N");
+    public string Name { get; set; } = "全部版本";
+    public string MinVersion { get; set; } = "";
+    public string MaxVersion { get; set; } = "";
+    public List<string> Loaders { get; set; } = [];
+    public override string ToString() => Name;
+}
+
+public class PackVersionRange : CompatibilityScope
 {
     public List<string> PackOrder { get; set; } = [];
     public List<string> EnabledPacks { get; set; } = [];

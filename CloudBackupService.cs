@@ -62,6 +62,7 @@ internal static class SecretProtector
 }
 
 internal sealed record WebDavOptions(string Url, string Username, string Password, string RemotePath);
+internal sealed record PortableBackupContents(bool HasPackLibrary, bool HasShaderLibrary);
 
 internal static class CloudBackupService
 {
@@ -118,7 +119,15 @@ internal static class CloudBackupService
         await using var output = File.Create(temp); await response.Content.CopyToAsync(output, token); return temp;
     }
 
-    public static string Restore(string archivePath, AppSettings current)
+    public static PortableBackupContents InspectContents(string archivePath)
+    {
+        using var archive = ZipFile.OpenRead(archivePath);
+        return new(
+            archive.Entries.Any(entry => entry.FullName.StartsWith("libraries/resourcepacks/", StringComparison.OrdinalIgnoreCase) && entry.Name.Length > 0),
+            archive.Entries.Any(entry => entry.FullName.StartsWith("libraries/shaderpacks/", StringComparison.OrdinalIgnoreCase) && entry.Name.Length > 0));
+    }
+
+    public static string Restore(string archivePath, AppSettings current, string? packLibraryDestination = null, string? shaderLibraryDestination = null)
     {
         var safety = Path.Combine(SettingsStore.Root, $"before-webdav-restore-{DateTime.Now:yyyyMMdd-HHmmss}.zip");
         CreatePortableBackup(safety, current);
@@ -131,6 +140,8 @@ internal static class CloudBackupService
             var restored = JsonSerializer.Deserialize<AppSettings>(File.ReadAllText(settingsPath)) ?? throw new InvalidDataException("云端设置无法解析。");
             restored.CurseForgeApiKey = current.CurseForgeApiKey; restored.GitHubToken = current.GitHubToken;
             restored.WebDavUrl = current.WebDavUrl; restored.WebDavUsername = current.WebDavUsername; restored.WebDavPasswordProtected = current.WebDavPasswordProtected; restored.WebDavRemotePath = current.WebDavRemotePath;
+            restored.PackLibrary = string.IsNullOrWhiteSpace(packLibraryDestination) ? current.PackLibrary : packLibraryDestination;
+            restored.ShaderLibrary = string.IsNullOrWhiteSpace(shaderLibraryDestination) ? current.ShaderLibrary : shaderLibraryDestination;
             SettingsStore.Save(restored);
             var profiles = Path.Combine(extract, "mod-config-profiles");
             var profileTarget = Path.Combine(SettingsStore.Root, "mod-config-profiles");
@@ -138,8 +149,8 @@ internal static class CloudBackupService
             if (Directory.Exists(profiles)) CopyTree(profiles, profileTarget);
             var packLibrary = Path.Combine(extract, "libraries", "resourcepacks");
             var shaderLibrary = Path.Combine(extract, "libraries", "shaderpacks");
-            if (Directory.Exists(packLibrary) && !string.IsNullOrWhiteSpace(restored.PackLibrary)) CopyTree(packLibrary, restored.PackLibrary);
-            if (Directory.Exists(shaderLibrary) && !string.IsNullOrWhiteSpace(restored.ShaderLibrary)) CopyTree(shaderLibrary, restored.ShaderLibrary);
+            if (Directory.Exists(packLibrary) && !string.IsNullOrWhiteSpace(packLibraryDestination)) CopyTree(packLibrary, restored.PackLibrary);
+            if (Directory.Exists(shaderLibrary) && !string.IsNullOrWhiteSpace(shaderLibraryDestination)) CopyTree(shaderLibrary, restored.ShaderLibrary);
             return safety;
         }
         finally { try { Directory.Delete(extract, true); } catch { } try { File.Delete(archivePath); } catch { } }
