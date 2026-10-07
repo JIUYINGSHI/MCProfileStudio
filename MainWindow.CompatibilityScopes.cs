@@ -116,15 +116,28 @@ public partial class MainWindow
 
     private CompatibilityScope? ShowScopeEditor(string title, bool includeLoaders)
     {
-        var dialog = AppDialog.CreateWindow(this, title, 520, includeLoaders ? 500 : 390, false); var root = new StackPanel { Margin = new Thickness(24) };
-        root.Children.Add(new TextBlock { Text = title, FontSize = 21, FontWeight = FontWeights.SemiBold });
-        TextBox Field(string label, string hint) { root.Children.Add(new TextBlock { Text = label, Foreground = new SolidColorBrush(Color.FromRgb(184, 199, 214)), Margin = new Thickness(0, 13, 0, 5) }); var box = new TextBox { ToolTip = hint }; root.Children.Add(box); return box; }
-        var name = Field("范围名称", "例如：1.18～1.20 科技包"); var min = Field("最低版本", "例如 1.18.x；留空表示不限"); var max = Field("最高版本", "例如 1.20.x；留空表示不限");
+        var dialog = AppDialog.CreateWindow(this, title, 520, includeLoaders ? 570 : 500, false);
+        var root = new Grid { Margin = new Thickness(24) };
+        root.RowDefinitions.Add(new RowDefinition());
+        root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        var form = new StackPanel();
+        form.Children.Add(new TextBlock { Text = title, FontSize = 21, FontWeight = FontWeights.SemiBold });
+        TextBox TextField(string label, string hint) { form.Children.Add(new TextBlock { Text = label, Foreground = new SolidColorBrush(Color.FromRgb(184, 199, 214)), Margin = new Thickness(0, 13, 0, 5) }); var box = new TextBox { ToolTip = hint }; form.Children.Add(box); return box; }
+        ComboBox VersionField(string label) { form.Children.Add(new TextBlock { Text = label, Foreground = new SolidColorBrush(Color.FromRgb(184, 199, 214)), Margin = new Thickness(0, 13, 0, 5) }); var box = new ComboBox { ItemsSource = new[] { "不限" }.Concat(CompatibilityScopes.OfficialMajorVersions), SelectedIndex = 0 }; form.Children.Add(box); return box; }
+        var name = TextField("范围名称", "例如：1.18～1.20 科技包");
+        var min = VersionField("最低版本");
+        var max = VersionField("最高版本");
         var loaderChecks = new List<CheckBox>();
-        if (includeLoaders) { root.Children.Add(new TextBlock { Text = "适用加载器（不勾选表示全部）", Foreground = new SolidColorBrush(Color.FromRgb(184, 199, 214)), Margin = new Thickness(0, 13, 0, 5) }); var row = new WrapPanel(); foreach (var loader in new[] { "Fabric", "Forge", "NeoForge", "Quilt" }) { var check = new CheckBox { Content = loader, Margin = new Thickness(0, 0, 14, 0) }; loaderChecks.Add(check); row.Children.Add(check); } root.Children.Add(row); }
-        var hintText = new TextBlock { Foreground = new SolidColorBrush(Color.FromRgb(255, 183, 83)), Margin = new Thickness(0, 12, 0, 0), TextWrapping = TextWrapping.Wrap }; root.Children.Add(hintText);
-        var buttons = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 18, 0, 0) }; var cancel = new Button { Content = "取消", Background = new SolidColorBrush(Color.FromRgb(58, 58, 58)), Margin = new Thickness(0, 0, 8, 0) }; cancel.Click += (_, _) => dialog.DialogResult = false; var save = new Button { Content = "添加范围" }; save.Click += (_, _) => { if (string.IsNullOrWhiteSpace(name.Text)) { hintText.Text = "请填写范围名称。"; return; } dialog.DialogResult = true; }; buttons.Children.Add(cancel); buttons.Children.Add(save); root.Children.Add(buttons); AppDialog.SetBody(dialog, root);
-        if (dialog.ShowDialog() != true) return null; return new CompatibilityScope { Name = name.Text.Trim(), MinVersion = min.Text.Trim(), MaxVersion = max.Text.Trim(), Loaders = loaderChecks.Where(item => item.IsChecked == true).Select(item => item.Content?.ToString() ?? "").Where(item => item.Length > 0).ToList() };
+        if (includeLoaders) { form.Children.Add(new TextBlock { Text = "适用加载器（不勾选表示全部）", Foreground = new SolidColorBrush(Color.FromRgb(184, 199, 214)), Margin = new Thickness(0, 13, 0, 5) }); var row = new WrapPanel(); foreach (var loader in new[] { "Fabric", "Forge", "NeoForge", "Quilt" }) { var check = new CheckBox { Content = loader, Margin = new Thickness(0, 0, 14, 0) }; loaderChecks.Add(check); row.Children.Add(check); } form.Children.Add(row); }
+        var hintText = new TextBlock { Foreground = new SolidColorBrush(Color.FromRgb(255, 183, 83)), Margin = new Thickness(0, 12, 0, 0), TextWrapping = TextWrapping.Wrap }; form.Children.Add(hintText);
+        var formScroll = new ScrollViewer { Content = form, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled };
+        Grid.SetRow(formScroll, 0); root.Children.Add(formScroll);
+        var buttons = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 18, 0, 0) }; var cancel = new Button { Content = "取消", Background = new SolidColorBrush(Color.FromRgb(58, 58, 58)), Margin = new Thickness(0, 0, 8, 0) }; cancel.Click += (_, _) => dialog.DialogResult = false; var save = new Button { Content = "添加范围" }; buttons.Children.Add(cancel); buttons.Children.Add(save); root.Children.Add(buttons);
+        Grid.SetRow(buttons, 1);
+        CompatibilityScope ReadScope() => new() { Name = name.Text.Trim(), MinVersion = min.SelectedIndex <= 0 ? "" : min.SelectedItem?.ToString() ?? "", MaxVersion = max.SelectedIndex <= 0 ? "" : max.SelectedItem?.ToString() ?? "", Loaders = loaderChecks.Where(item => item.IsChecked == true).Select(item => item.Content?.ToString() ?? "").Where(item => item.Length > 0).ToList() };
+        save.Click += (_, _) => { var scope = ReadScope(); if (string.IsNullOrWhiteSpace(scope.Name)) { hintText.Text = "请填写范围名称。"; return; } if (!CompatibilityScopes.IsOrdered(scope)) { hintText.Text = "最低版本不能高于最高版本。"; return; } dialog.DialogResult = true; };
+        AppDialog.SetBody(dialog, root);
+        if (dialog.ShowDialog() != true) return null; return ReadScope();
     }
 
     private static bool IsFallback(CompatibilityScope scope) => string.IsNullOrWhiteSpace(scope.MinVersion) && string.IsNullOrWhiteSpace(scope.MaxVersion) && scope.Loaders.Count == 0;

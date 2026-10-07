@@ -20,3 +20,11 @@ Assert(CompatibilityScopes.Matches(forge, "1.20.1", "Forge"), "Forge scope match
 Assert(!CompatibilityScopes.Matches(forge, "1.20.1", "Fabric"), "Forge scope rejects Fabric");
 Assert(!CompatibilityScopes.Overlaps(forge, fabric), "same version with different loaders is not ambiguous");
 Assert(CompatibilityScopes.Overlaps(oldPack, new CompatibilityScope { MinVersion = "1.20.x", MaxVersion = "1.21.x" }), "overlapping ranges are detected");
+
+var majorRange = new CompatibilityScope { Name = "official major range", MinVersion = "1.20", MaxVersion = "1.21" };
+Assert(CompatibilityScopes.Matches(majorRange, "1.20.6"), "major version 1.20 includes every 1.20 patch");
+Assert(CompatibilityScopes.Matches(majorRange, "1.21.11"), "major version 1.21 includes every 1.21 patch");
+Assert(!CompatibilityScopes.Matches(majorRange, "26.1"), "new calendar version is outside legacy major range");
+Assert(CompatibilityScopes.IsOrdered(new CompatibilityScope { MinVersion = "1.21", MaxVersion = "26.1" }), "1.21 to 26.1 is an ordered range");
+Assert(!CompatibilityScopes.IsOrdered(new CompatibilityScope { MinVersion = "26.2", MaxVersion = "26.1" }), "reversed official major range is rejected");
+Assert(CompatibilityScopes.OfficialMajorVersions.SequenceEqual(CompatibilityScopes.OfficialMajorVersions.OrderBy(value => Version.Parse(value))), "official major versions stay sorted");

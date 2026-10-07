@@ -4,6 +4,19 @@ namespace McProfileStudio;
 
 public static class CompatibilityScopes
 {
+    public static readonly string[] OfficialMajorVersions =
+    [
+        "1.7", "1.8", "1.9", "1.10", "1.11", "1.12", "1.13", "1.14", "1.15", "1.16",
+        "1.17", "1.18", "1.19", "1.20", "1.21", "26.1", "26.2"
+    ];
+
+    public static bool IsOrdered(CompatibilityScope scope)
+    {
+        var min = Bound(scope.MinVersion, false, (0, 0, 0));
+        var max = Bound(scope.MaxVersion, true, (int.MaxValue, int.MaxValue, int.MaxValue));
+        return Compare(min, max) <= 0;
+    }
+
     public static bool Matches(CompatibilityScope scope, string version, string? loader = null)
     {
         if (!string.IsNullOrWhiteSpace(loader) && scope.Loaders.Count > 0 && !scope.Loaders.Contains(loader, StringComparer.OrdinalIgnoreCase)) return false;

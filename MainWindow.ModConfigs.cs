@@ -194,7 +194,14 @@ public partial class MainWindow
         actions.Children.Add(MakeActionButton("应用当前选中 Mod", ApplySelectedModConfig_Click, new Thickness(0, 7, 0, 0), false));
         actions.Children.Add(MakeActionButton("应用全部已安装 Mod", ApplyAllModConfigs_Click, new Thickness(0, 7, 0, 0)));
         modConfigHint = new TextBlock { Foreground = new SolidColorBrush(Color.FromRgb(103, 190, 245)), TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 14, 0, 0) }; actions.Children.Add(modConfigHint);
-        right.Child = actions; Grid.SetColumn(right, 2); modConfigsPage.Children.Add(right);
+        right.Child = new ScrollViewer
+        {
+            Content = actions,
+            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+            HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
+            PanningMode = PanningMode.VerticalOnly
+        };
+        Grid.SetColumn(right, 2); modConfigsPage.Children.Add(right);
 
         host.Children.Add(modConfigsPage); RefreshModConfigProfiles(); RefreshModConfigScopeSelector(true); RefreshModConfigPage();
     }
