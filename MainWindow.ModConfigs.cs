@@ -39,7 +39,7 @@ public partial class MainWindow
     private sealed record DiscoveredBooleanOption(string Category, string Key);
     private sealed class ModConfigProfileManifest
     {
-        public int FormatVersion { get; set; } = 1;
+        public int FormatVersion { get; set; } = 2;
         public string MinecraftVersion { get; set; } = "";
         public string Loader { get; set; } = "";
         public Dictionary<string, ModConfigProfileMod> Mods { get; set; } = new(StringComparer.OrdinalIgnoreCase);
@@ -141,6 +141,7 @@ public partial class MainWindow
     private readonly Dictionary<string, string> modCategoryTranslationCache = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, (string Label, string Tooltip)> modOptionTranslationCache = new(StringComparer.OrdinalIgnoreCase);
     private bool switchingModConfigProfile;
+    private ModConfigApplySnapshot? activeModConfigSnapshot;
 
     private string ModConfigProfilesRoot => Path.Combine(SettingsStore.Root, "mod-config-profiles");
 
@@ -186,7 +187,8 @@ public partial class MainWindow
         modConfigLanguageCombo = new ComboBox { ItemsSource = new[] { "中文优先", "中英双语", "English" }, SelectedItem = settings.ModConfigLanguage };
         modConfigLanguageCombo.SelectionChanged += (_, _) => { if (modConfigLanguageCombo.SelectedItem is string language) { settings.ModConfigLanguage = language; SettingsStore.Save(settings); RenderSelectedModConfigSafely(); } }; actions.Children.Add(modConfigLanguageCombo);
         actions.Children.Add(new Separator { Opacity = .2, Margin = new Thickness(0, 14, 0, 12) });
-        actions.Children.Add(MakeActionButton("应用当前选中 Mod", ApplySelectedModConfig_Click, new Thickness(0), false));
+        actions.Children.Add(MakeActionButton("检查迁移兼容性", PreviewModConfigMigration_Click, new Thickness(0), false));
+        actions.Children.Add(MakeActionButton("应用当前选中 Mod", ApplySelectedModConfig_Click, new Thickness(0, 7, 0, 0), false));
         actions.Children.Add(MakeActionButton("应用全部已安装 Mod", ApplyAllModConfigs_Click, new Thickness(0, 7, 0, 0)));
         modConfigHint = new TextBlock { Foreground = new SolidColorBrush(Color.FromRgb(103, 190, 245)), TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 14, 0, 0) }; actions.Children.Add(modConfigHint);
         right.Child = actions; Grid.SetColumn(right, 2); modConfigsPage.Children.Add(right);
@@ -262,27 +264,40 @@ public partial class MainWindow
 
     private IEnumerable<ModConfigDraft> DiscoverAdditionalModConfigs(HashSet<string> coveredIds)
     {
-        var configRoot = Path.Combine(instance, "config"); if (!Directory.Exists(configRoot)) yield break;
-        var files = Directory.EnumerateFiles(configRoot, "*", SearchOption.AllDirectories).Where(IsSupportedConfigFile).ToList();
+        var roots = EnumerateConfigRoots(instance).ToList(); if (roots.Count == 0) yield break;
+        var files = roots.SelectMany(root => Directory.EnumerateFiles(root, "*", SearchOption.AllDirectories).Where(IsSupportedConfigFile).Select(file => (Root: root, File: file))).ToList();
         foreach (var mod in mods.Values.Where(mod => mod.Id != "minecraft" && !coveredIds.Any(id => ModIdMatches(id, mod.Id))))
         {
-            var matches = files.Select(file => (File: file, Score: ScoreConfigPath(configRoot, file, mod))).Where(item => item.Score > 0).OrderByDescending(item => item.Score).ThenBy(item => item.File.Length).ToList();
+            var matches = files.Select(item => (item.Root, item.File, Score: ScoreConfigPath(item.Root, item.File, mod))).Where(item => item.Score > 0).OrderByDescending(item => item.Score).ThenBy(item => item.File.Length).ToList();
             if (matches.Count == 0) continue;
             var editable = matches.Where(item => Path.GetExtension(item.File).Equals(".json", StringComparison.OrdinalIgnoreCase) && TryReadEditableJsonObject(item.File, out _)).ToList();
-            if (editable.Count == 0) continue;
-            var primary = editable[0].File; var bestScore = editable[0].Score;
+            var primary = editable.Count > 0 ? editable[0].File : matches[0].File; var bestScore = editable.Count > 0 ? editable[0].Score : matches[0].Score;
             var selected = matches.Where(item => item.Score >= Math.Max(55, bestScore - 15)).Select(item => item.File).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
             if (!selected.Contains(primary, StringComparer.OrdinalIgnoreCase)) selected.Insert(0, primary);
             TryReadJsonObject(primary, out var json);
-            var commonDirectory = selected.Select(Path.GetDirectoryName).Distinct(StringComparer.OrdinalIgnoreCase).Count() == 1 && !Path.GetDirectoryName(primary)!.Equals(configRoot, StringComparison.OrdinalIgnoreCase) ? Path.GetDirectoryName(primary)! : primary;
+            var commonDirectory = selected.Select(Path.GetDirectoryName).Distinct(StringComparer.OrdinalIgnoreCase).Count() == 1 && !roots.Contains(Path.GetDirectoryName(primary)!, StringComparer.OrdinalIgnoreCase) ? Path.GetDirectoryName(primary)! : primary;
             var relative = Path.GetRelativePath(instance, commonDirectory).Replace('\\', '/');
             var primaryName = Directory.Exists(commonDirectory) ? Path.GetFileName(primary) : "";
             var definition = new ModConfigDefinition(mod.Id, mod.ChineseName, mod.EnglishName, relative, primaryName, [mod.Id]);
-            var draft = new ModConfigDraft { Definition = definition, SourcePath = commonDirectory, Json = json, IsDetected = true, IsAutoDiscovered = true };
+            var draft = new ModConfigDraft { Definition = definition, SourcePath = commonDirectory, Json = json, IsDetected = true, IsAutoDiscovered = true, IsReadOnlyFormat = json == null };
             draft.ConfigFiles.AddRange(selected);
             foreach (var hotkey in DiscoverHotkeyNames(definition)) draft.DiscoveredHotkeys.Add(hotkey);
             foreach (var option in DiscoverBooleanOptions(definition, json)) draft.DiscoveredOptions.Add(option);
             yield return draft;
+        }
+    }
+
+    private static IEnumerable<string> EnumerateConfigRoots(string instancePath)
+    {
+        foreach (var relative in new[] { "config", "defaultconfigs" })
+        {
+            var path = Path.Combine(instancePath, relative); if (Directory.Exists(path)) yield return path;
+        }
+        var saves = Path.Combine(instancePath, "saves");
+        if (!Directory.Exists(saves)) yield break;
+        foreach (var world in Directory.EnumerateDirectories(saves))
+        {
+            var path = Path.Combine(world, "serverconfig"); if (Directory.Exists(path)) yield return path;
         }
     }
 
@@ -438,7 +453,7 @@ public partial class MainWindow
         foreach (var option in group)
         {
             var fullPath = string.IsNullOrWhiteSpace(path) ? option.Key : $"{path}.{option.Key}";
-            if (option.Value is JsonArray || option.Value == null) continue;
+            if (option.Value == null) continue;
             var valueText = option.Value?.ToJsonString(new JsonSerializerOptions { WriteIndented = false }) ?? "null";
             if (option.Value is JsonObject nested && !IsEditableConfigObject(nested))
             {
@@ -465,7 +480,8 @@ public partial class MainWindow
     private static int CountEditableConfigValues(JsonNode? node)
     {
         if (node is JsonValue) return 1;
-        if (node is JsonArray || node is null) return 0;
+        if (node is JsonArray) return 1;
+        if (node is null) return 0;
         if (node is not JsonObject obj) return 0;
         if (IsEditableConfigObject(obj)) return 1;
         return obj.Sum(item => CountEditableConfigValues(item.Value));
@@ -952,15 +968,15 @@ public partial class MainWindow
                 }
                 if (draft.IsAutoDiscovered)
                 {
-                    var configRoot = Path.Combine(instance, "config"); var filesRoot = Path.Combine(destination, "files");
+                    var filesRoot = Path.Combine(destination, "files");
                     foreach (var file in draft.ConfigFiles.Where(File.Exists))
                     {
-                        var relative = Path.GetRelativePath(configRoot, file); var target = Path.Combine(filesRoot, relative); Directory.CreateDirectory(Path.GetDirectoryName(target)!); File.Copy(file, target, true); MakeFileWritable(target);
+                        var relative = Path.GetRelativePath(instance, file); var target = Path.Combine(filesRoot, relative); Directory.CreateDirectory(Path.GetDirectoryName(target)!); File.Copy(file, target, true); MakeFileWritable(target);
                     }
                     if (draft.Json != null)
                     {
                         var primarySource = Directory.Exists(draft.SourcePath) ? Path.Combine(draft.SourcePath, draft.Definition.PrimaryJson) : draft.SourcePath;
-                        var primaryTarget = Path.Combine(filesRoot, Path.GetRelativePath(configRoot, primarySource)); Directory.CreateDirectory(Path.GetDirectoryName(primaryTarget)!);
+                        var primaryTarget = Path.Combine(filesRoot, Path.GetRelativePath(instance, primarySource)); Directory.CreateDirectory(Path.GetDirectoryName(primaryTarget)!);
                         WriteDraftJson(draft, primaryTarget);
                     }
                     continue;
@@ -1028,7 +1044,8 @@ public partial class MainWindow
             if (draft.IsAutoDiscovered)
             {
                 var source = Directory.Exists(draft.SourcePath) ? Path.Combine(draft.SourcePath, draft.Definition.PrimaryJson) : draft.SourcePath;
-                var profileFile = Path.Combine(root, draft.Definition.Id, "files", Path.GetRelativePath(Path.Combine(instance, "config"), source));
+                var profileFile = Path.Combine(root, draft.Definition.Id, "files", Path.GetRelativePath(instance, source));
+                if (!File.Exists(profileFile)) profileFile = Path.Combine(root, draft.Definition.Id, "files", Path.GetRelativePath(Path.Combine(instance, "config"), source));
                 if (File.Exists(profileFile)) try { draft.Json = JsonNode.Parse(File.ReadAllText(profileFile)) as JsonObject; } catch { }
                 continue;
             }
@@ -1046,12 +1063,36 @@ public partial class MainWindow
 
     private void ApplyAllModConfigs_Click(object sender, RoutedEventArgs e) => ApplyModConfigProfile(modConfigDrafts);
 
+    private void PreviewModConfigMigration_Click(object sender, RoutedEventArgs e)
+    {
+        if (string.IsNullOrWhiteSpace(instance)) return;
+        var profileRoot = Path.Combine(ModConfigProfilesRoot, SafeProfileName(settings.ActiveModConfigProfile)); var manifest = ReadModConfigManifest(profileRoot); var environment = DetectInstanceEnvironment();
+        var exact = 0; var semantic = 0; var structured = 0; var skipped = 0; var details = new List<string>();
+        foreach (var draft in modConfigDrafts)
+        {
+            var source = Path.Combine(profileRoot, draft.Definition.Id); if (!Directory.Exists(source)) continue;
+            if (draft.CarpetRules != null) { semantic++; details.Add($"✓ {draft.Definition.DisplayName}：按目标规则名迁移"); continue; }
+            var installed = FindInstalledMod(draft.Definition); if (installed == null) { skipped++; details.Add($"○ {draft.Definition.DisplayName}：目标实例未安装"); continue; }
+            ModConfigProfileMod? saved = null; manifest?.Mods.TryGetValue(draft.Definition.Id, out saved);
+            var same = saved != null && DefinitionMatchesInstalled(saved.ModId, installed) && saved.ModVersion.Equals(installed.Version, StringComparison.OrdinalIgnoreCase) && saved.Loader.Equals(environment.Loader, StringComparison.OrdinalIgnoreCase);
+            if (same) { exact++; details.Add($"✓ {draft.Definition.DisplayName}：版本与加载器完全匹配"); continue; }
+            if (draft.Definition.Id.Equals("inventoryprofilesnext", StringComparison.OrdinalIgnoreCase)) { semantic++; details.Add($"↔ {draft.Definition.DisplayName}：按目标 JAR 功能语义转换"); continue; }
+            var files = Directory.EnumerateFiles(source, "*", SearchOption.AllDirectories).ToList();
+            if (files.Any(file => Path.GetExtension(file).Equals(".json", StringComparison.OrdinalIgnoreCase) || new[] { ".toml", ".properties", ".cfg", ".conf", ".yml", ".yaml" }.Contains(Path.GetExtension(file), StringComparer.OrdinalIgnoreCase))) { structured++; details.Add($"↔ {draft.Definition.DisplayName}：按目标现有字段合并"); }
+            else { skipped++; details.Add($"○ {draft.Definition.DisplayName}：没有可安全迁移的结构化文件"); }
+        }
+        var header = $"目标：Minecraft {environment.Version} / {environment.Loader}\n完全匹配 {exact} · 语义转换 {semantic} · 结构合并 {structured} · 跳过 {skipped}";
+        AppDialog.Show(this, header + "\n\n" + string.Join("\n", details.Take(20)) + (details.Count > 20 ? $"\n…另有 {details.Count - 20} 项" : ""), "迁移兼容性检查", MessageBoxButton.OK, skipped > 0 ? MessageBoxImage.Warning : MessageBoxImage.Information);
+    }
+
     private void ApplyModConfigProfile(IEnumerable<ModConfigDraft> drafts)
     {
         if (string.IsNullOrWhiteSpace(instance)) return;
+        ModConfigApplySnapshot? snapshot = null;
         try
         {
             EnsureMinecraftClientClosedBeforeApplying();
+            snapshot = new ModConfigApplySnapshot(Path.Combine(SettingsStore.Root, "backups", $"mod-config-{DateTime.Now:yyyyMMdd-HHmmss}")); activeModConfigSnapshot = snapshot;
             var profileRoot = Path.Combine(ModConfigProfilesRoot, SafeProfileName(settings.ActiveModConfigProfile)); var applied = 0; var merged = 0; var skipped = 0;
             var manifest = ReadModConfigManifest(profileRoot);
             var targetEnvironment = DetectInstanceEnvironment();
@@ -1078,21 +1119,24 @@ public partial class MainWindow
                 if (draft.IsAutoDiscovered)
                 {
                     var filesRoot = Path.Combine(source, "files"); if (!Directory.Exists(filesRoot)) continue;
+                    var modApplied = false;
                     foreach (var profileFile in Directory.EnumerateFiles(filesRoot, "*", SearchOption.AllDirectories))
                     {
-                        var target = Path.Combine(instance, "config", Path.GetRelativePath(filesRoot, profileFile));
-                        if (TryApplyVersionAwareConfigFile(profileFile, target, exactCompatibility, draft.Definition.Id, installedMod, out var wasMerged)) { if (wasMerged) merged++; }
+                        var relative = Path.GetRelativePath(filesRoot, profileFile);
+                        var target = manifest is { FormatVersion: >= 2 } ? Path.Combine(instance, relative) : Path.Combine(instance, "config", relative);
+                        if (TryApplyVersionAwareConfigFile(profileFile, target, exactCompatibility, draft.Definition.Id, installedMod, out var wasMerged)) { modApplied = true; if (wasMerged) merged++; }
                         else skipped++;
                     }
-                    applied++; continue;
+                    if (modApplied) applied++; continue;
                 }
+                var knownModApplied = false;
                 if (Directory.Exists(draft.SourcePath))
                 {
                     foreach (var profileFile in Directory.EnumerateFiles(source, "*", SearchOption.AllDirectories))
                     {
                         if (Path.GetFileName(profileFile).Equals("profile-manifest.json", StringComparison.OrdinalIgnoreCase)) continue;
                         var target = Path.Combine(draft.SourcePath, Path.GetRelativePath(source, profileFile));
-                        if (TryApplyVersionAwareConfigFile(profileFile, target, exactCompatibility, draft.Definition.Id, installedMod, out var wasMerged)) { if (wasMerged) merged++; }
+                        if (TryApplyVersionAwareConfigFile(profileFile, target, exactCompatibility, draft.Definition.Id, installedMod, out var wasMerged)) { knownModApplied = true; if (wasMerged) merged++; }
                         else skipped++;
                     }
                 }
@@ -1100,17 +1144,21 @@ public partial class MainWindow
                 {
                     var profileFile = Path.Combine(source, Path.GetFileName(draft.SourcePath)); if (!File.Exists(profileFile)) continue;
                     if (!TryApplyVersionAwareConfigFile(profileFile, draft.SourcePath, exactCompatibility, draft.Definition.Id, installedMod, out var wasMerged)) { skipped++; continue; }
+                    knownModApplied = true;
                     if (wasMerged) merged++;
                 }
-                applied++;
+                if (knownModApplied) applied++;
             }
             StatusText.Text = $"已适配 {applied} 个 Mod 配置；字段合并 {merged} 个文件，跳过 {skipped} 个不兼容文件";
             ShowToast("Mod 配置已适配", skipped == 0 ? $"共 {applied} 个 Mod。" : $"{applied} 个 Mod，跳过 {skipped} 个不兼容文件。", true, 3600);
+            activeModConfigSnapshot = null;
         }
         catch (Exception ex)
         {
+            try { snapshot?.Rollback(); } catch (Exception rollbackError) { ex = new AggregateException(ex, rollbackError); }
+            activeModConfigSnapshot = null;
             StatusText.Text = "应用 Mod 配置失败";
-            ShowToast("Mod 配置覆盖失败", ex.Message, false, 5200);
+            ShowToast("Mod 配置覆盖失败，已回滚", ex.Message, false, 5200);
         }
     }
 
@@ -1129,7 +1177,7 @@ public partial class MainWindow
         catch { return null; }
     }
 
-    private static bool TryApplyVersionAwareConfigFile(string profileFile, string target, bool exactBinaryCompatibility, string modId, ModInfo? installedMod, out bool merged)
+    private bool TryApplyVersionAwareConfigFile(string profileFile, string target, bool exactBinaryCompatibility, string modId, ModInfo? installedMod, out bool merged)
     {
         merged = false;
         var extension = Path.GetExtension(profileFile);
@@ -1150,6 +1198,11 @@ public partial class MainWindow
             BackupModConfig(target); Directory.CreateDirectory(Path.GetDirectoryName(target)!); MakeFileWritable(target);
             File.WriteAllText(target, output.ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
             return true;
+        }
+        if (ConfigFileMigration.TryMerge(profileFile, target, out var mergedText, out var changed))
+        {
+            if (changed == 0) return true;
+            BackupModConfig(target); MakeFileWritable(target); File.WriteAllText(target, mergedText, new UTF8Encoding(false)); merged = true; return true;
         }
         if (!exactBinaryCompatibility) return false;
         BackupModConfig(target); Directory.CreateDirectory(Path.GetDirectoryName(target)!); MakeFileWritable(target); File.Copy(profileFile, target, true); return true;
@@ -1237,17 +1290,39 @@ public partial class MainWindow
         catch { return false; }
     }
 
-    private static void BackupModConfig(string path)
+    private void BackupModConfig(string path)
     {
+        activeModConfigSnapshot?.Capture(path);
         if (File.Exists(path)) { MakeFileWritable(path + ".mcprofilestudio.bak"); File.Copy(path, path + ".mcprofilestudio.bak", true); }
         else if (Directory.Exists(path)) { var primaryFiles = Directory.EnumerateFiles(path, "*.json", SearchOption.TopDirectoryOnly); foreach (var file in primaryFiles) { MakeFileWritable(file + ".mcprofilestudio.bak"); File.Copy(file, file + ".mcprofilestudio.bak", true); } }
+    }
+
+    private sealed class ModConfigApplySnapshot(string backupRoot)
+    {
+        private readonly Dictionary<string, string?> files = new(StringComparer.OrdinalIgnoreCase);
+        public void Capture(string path)
+        {
+            path = Path.GetFullPath(path); if (files.ContainsKey(path)) return;
+            if (!File.Exists(path)) { files[path] = null; return; }
+            Directory.CreateDirectory(backupRoot);
+            var name = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(Encoding.UTF8.GetBytes(path))) + Path.GetExtension(path);
+            var backup = Path.Combine(backupRoot, name); File.Copy(path, backup, true); files[path] = backup;
+        }
+        public void Rollback()
+        {
+            foreach (var item in files.Reverse())
+            {
+                if (item.Value == null) { if (File.Exists(item.Key)) File.Delete(item.Key); continue; }
+                Directory.CreateDirectory(Path.GetDirectoryName(item.Key)!); MakeFileWritable(item.Key); File.Copy(item.Value, item.Key, true);
+            }
+        }
     }
 
     private static void CopyDirectory(string source, string destination)
     {
         Directory.CreateDirectory(destination);
         foreach (var directory in Directory.EnumerateDirectories(source, "*", SearchOption.AllDirectories)) Directory.CreateDirectory(Path.Combine(destination, Path.GetRelativePath(source, directory)));
-        foreach (var file in Directory.EnumerateFiles(source, "*", SearchOption.AllDirectories)) File.Copy(file, Path.Combine(destination, Path.GetRelativePath(source, file)), true);
+        foreach (var file in Directory.EnumerateFiles(source, "*", SearchOption.AllDirectories).Where(file => !file.EndsWith(".mcprofilestudio.bak", StringComparison.OrdinalIgnoreCase) && !file.EndsWith(".mcprofilestudio.tmp", StringComparison.OrdinalIgnoreCase))) File.Copy(file, Path.Combine(destination, Path.GetRelativePath(source, file)), true);
     }
 
     private static string SafeProfileName(string value)

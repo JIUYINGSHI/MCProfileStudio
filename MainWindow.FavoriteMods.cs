@@ -219,7 +219,11 @@ public partial class MainWindow
     {
         var detected = DetectInstanceEnvironment(); var version = !forceDetected && !string.IsNullOrWhiteSpace(settings.PreferredMinecraftVersion) ? settings.PreferredMinecraftVersion : detected.Version; var loader = !forceDetected && !string.IsNullOrWhiteSpace(settings.PreferredModLoader) ? settings.PreferredModLoader : detected.Loader;
         if (marketplaceVersionCombo != null) { var selectedVersion = string.IsNullOrWhiteSpace(version) ? CommonMinecraftVersions[0] : version; marketplaceVersionCombo.ItemsSource = CommonMinecraftVersions.Prepend(selectedVersion).Distinct().ToList(); marketplaceVersionCombo.SelectedItem = selectedVersion; }
-        if (marketplaceLoaderCombo != null) marketplaceLoaderCombo.SelectedItem = SupportedLoaders.Contains(loader, StringComparer.OrdinalIgnoreCase) ? SupportedLoaders.First(item => item.Equals(loader, StringComparison.OrdinalIgnoreCase)) : "Fabric";
+        if (marketplaceLoaderCombo != null)
+        {
+            marketplaceLoaderCombo.ItemsSource = SupportedLoaders.Prepend(loader).Where(item => !string.IsNullOrWhiteSpace(item)).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+            marketplaceLoaderCombo.SelectedItem = loader;
+        }
         if (marketplaceStatus != null && !string.IsNullOrWhiteSpace(instance)) marketplaceStatus.Text = $"实例识别：Minecraft {detected.Version} / {detected.Loader}；可手动修改";
     }
 
@@ -247,7 +251,7 @@ public partial class MainWindow
             if (string.IsNullOrWhiteSpace(version)) { var match = Regex.Match(Path.GetFileName(instance), @"(?<!\d)(1\.\d+(?:\.\d+)?)(?!\d)"); if (match.Success) version = match.Groups[1].Value; }
             if (string.IsNullOrWhiteSpace(loader)) { if (mods.ContainsKey("fabric-api")) loader = "Fabric"; else if (mods.Keys.Any(id => id.Contains("neoforge", StringComparison.OrdinalIgnoreCase))) loader = "NeoForge"; }
         }
-        return (string.IsNullOrWhiteSpace(version) ? CommonMinecraftVersions[0] : version, string.IsNullOrWhiteSpace(loader) ? "Fabric" : loader);
+        return (string.IsNullOrWhiteSpace(version) ? "未识别" : version, string.IsNullOrWhiteSpace(loader) ? "未识别" : loader);
     }
 
     private async void OpenFavoriteDownloadDialog_Click(object sender, RoutedEventArgs e)

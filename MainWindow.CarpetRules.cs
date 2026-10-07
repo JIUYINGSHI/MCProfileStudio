@@ -238,7 +238,7 @@ public partial class MainWindow
         }
     }
 
-    private static void WriteMergedCarpetConf(string path, HashSet<string> knownRules, Dictionary<string, string> values, string header)
+    private void WriteMergedCarpetConf(string path, HashSet<string> knownRules, Dictionary<string, string> values, string header)
     {
         BackupModConfig(path);
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);

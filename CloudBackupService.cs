@@ -136,6 +136,10 @@ internal static class CloudBackupService
             var profileTarget = Path.Combine(SettingsStore.Root, "mod-config-profiles");
             if (Directory.Exists(profileTarget)) Directory.Delete(profileTarget, true);
             if (Directory.Exists(profiles)) CopyTree(profiles, profileTarget);
+            var packLibrary = Path.Combine(extract, "libraries", "resourcepacks");
+            var shaderLibrary = Path.Combine(extract, "libraries", "shaderpacks");
+            if (Directory.Exists(packLibrary) && !string.IsNullOrWhiteSpace(restored.PackLibrary)) CopyTree(packLibrary, restored.PackLibrary);
+            if (Directory.Exists(shaderLibrary) && !string.IsNullOrWhiteSpace(restored.ShaderLibrary)) CopyTree(shaderLibrary, restored.ShaderLibrary);
             return safety;
         }
         finally { try { Directory.Delete(extract, true); } catch { } try { File.Delete(archivePath); } catch { } }
@@ -163,6 +167,11 @@ internal static class CloudBackupService
             File.WriteAllText(Path.Combine(temp, "settings.json"), SanitizedSettingsJson(settings), Encoding.UTF8);
             File.WriteAllText(Path.Combine(temp, "manifest.json"), JsonSerializer.Serialize(new { schema = 1, app = "MC Profile Studio", createdAt = DateTimeOffset.UtcNow }, JsonOptions), Encoding.UTF8);
             var profiles = Path.Combine(SettingsStore.Root, "mod-config-profiles"); if (Directory.Exists(profiles)) CopyTree(profiles, Path.Combine(temp, "mod-config-profiles"));
+            if (settings.IncludeLibrariesInCloudBackup)
+            {
+                if (Directory.Exists(settings.PackLibrary)) CopyTree(settings.PackLibrary, Path.Combine(temp, "libraries", "resourcepacks"));
+                if (Directory.Exists(settings.ShaderLibrary)) CopyTree(settings.ShaderLibrary, Path.Combine(temp, "libraries", "shaderpacks"));
+            }
             if (File.Exists(target)) File.Delete(target); ZipFile.CreateFromDirectory(temp, target, CompressionLevel.Optimal, false);
         }
         finally { try { Directory.Delete(temp, true); } catch { } }

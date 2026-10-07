@@ -70,6 +70,7 @@ public partial class MainWindow
         form.Children.Add(new TextBlock { Text = "密码", Foreground = new SolidColorBrush(Color.FromRgb(186, 199, 216)), Margin = new Thickness(0, 8, 0, 5) });
         var password = new PasswordBox { Password = SecretProtector.Unprotect(settings.WebDavPasswordProtected), ToolTip = "仅使用 Windows 当前用户加密后保存在本机" }; form.Children.Add(password);
         var remotePath = AddText("远程目录", string.IsNullOrWhiteSpace(settings.WebDavRemotePath) ? "MCProfileStudio" : settings.WebDavRemotePath, "相对于服务器地址的目录，会自动创建");
+        var includeLibraries = new CheckBox { Content = "同时备份资源包与光影包文件", IsChecked = settings.IncludeLibrariesInCloudBackup, Margin = new Thickness(0, 14, 0, 0), ToolTip = "会显著增大备份体积；恢复时合并到备份记录的固定库目录，不删除本地已有文件" }; form.Children.Add(includeLibraries);
         var status = new TextBlock { Text = "使用 HTTPS 可避免 Basic 登录凭据在传输过程中暴露。", Foreground = new SolidColorBrush(Color.FromRgb(49, 183, 255)), TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 14, 0, 0) }; form.Children.Add(status); root.Children.Add(form);
         var actions = new WrapPanel { HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 18, 0, 0) };
         var test = new Button { Content = "测试连接", Background = new SolidColorBrush(Color.FromRgb(58, 58, 58)), Margin = new Thickness(0, 0, 8, 0) };
@@ -80,7 +81,7 @@ public partial class MainWindow
         WebDavOptions Current() => new(url.Text.Trim(), username.Text.Trim(), password.Password, remotePath.Text.Trim());
         void SaveLocal()
         {
-            var value = Current(); settings.WebDavUrl = value.Url; settings.WebDavUsername = value.Username; settings.WebDavPasswordProtected = SecretProtector.Protect(value.Password); settings.WebDavRemotePath = value.RemotePath; SettingsStore.Save(settings);
+            var value = Current(); settings.WebDavUrl = value.Url; settings.WebDavUsername = value.Username; settings.WebDavPasswordProtected = SecretProtector.Protect(value.Password); settings.WebDavRemotePath = value.RemotePath; settings.IncludeLibrariesInCloudBackup = includeLibraries.IsChecked == true; SettingsStore.Save(settings);
         }
         async Task RunAsync(Button button, string busy, Func<Task> operation)
         {

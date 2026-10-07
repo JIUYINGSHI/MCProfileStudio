@@ -10,6 +10,7 @@ using System.Windows.Media.Imaging;
 using System.Windows.Media.Media3D;
 using System.Windows.Media.Animation;
 using System.Runtime.InteropServices;
+using System.Text.RegularExpressions;
 using System.Windows.Interop;
 using System.Windows.Threading;
 
@@ -325,7 +326,7 @@ public partial class MainWindow : Window
             mod.EnglishTranslations.TryGetValue(translationKey, out var english); mod.ChineseTranslations.TryGetValue(translationKey, out var chinese);
             english = string.IsNullOrWhiteSpace(english) ? Humanize(pair.Key) : english; chinese ??= "";
             var item = new KeyBindingItem { OptionKey = pair.Key, DisplayName = string.IsNullOrWhiteSpace(chinese) ? english : chinese, FunctionEnglish = english, FunctionChinese = chinese, DisplayLanguage = settings.KeyDisplayLanguage, ModId = mod.Id, ModDisplayName = mod.DisplayName, IsLibrary = mod.IsLibrary, OriginalValue = pair.Value, Value = pair.Value, Remember = includeInDraft };
-            if (!includeInDraft && settings.KeyProfiles.TryGetValue(settings.ActiveKeyProfile, out var keyProfile)) { if (keyProfile.ModBindings.TryGetValue(mod.Id, out var savedMap) && savedMap.TryGetValue(pair.Key, out var saved)) { item.Value = saved; item.Remember = true; } item.CountsAsConflict = !keyProfile.ConflictExcluded.Contains(pair.Key); } allKeys.Add(item);
+            if (!includeInDraft && settings.KeyProfiles.TryGetValue(settings.ActiveKeyProfile, out var keyProfile)) { if (TryGetProfileBinding(keyProfile, item, out var saved)) { item.Value = saved; item.Remember = true; } item.CountsAsConflict = !keyProfile.ConflictExcluded.Contains(pair.Key); } allKeys.Add(item);
         }
         ModFilter.ItemsSource = new[] { "全部有键位的 Mod" }.Concat(allKeys.GroupBy(k => k.ModId).Select(g => g.First().ModDisplayName).Order()).ToList(); ModFilter.SelectedIndex = 0; RefreshKeyList(); BuildKeyboard(); RefreshModConfigPage(); RefreshSummary(); DetectAndSelectInstanceEnvironment(true); RefreshFavoriteModStatus(); StatusText.Text = $"已导入 {Path.GetFileName(instance)}：{allKeys.Select(k => k.ModId).Distinct().Count()} 个有键位 Mod，{allKeys.Count} 个键位";
     }
@@ -385,7 +386,7 @@ public partial class MainWindow : Window
     {
         var result = new List<PackItem>(); if (!Directory.Exists(folder)) return result;
         foreach (var path in Directory.EnumerateFileSystemEntries(folder).Where(p => Directory.Exists(p) || Path.GetExtension(p).Equals(".zip", StringComparison.OrdinalIgnoreCase)))
-        { var name = Path.GetFileName(path); var preview = shader && settings.ShaderPreviews.TryGetValue(name, out var saved) ? saved : shader ? FindSidecarPreview(path) : MinecraftConfig.ExtractPackPreview(path); var banner = shader ? "" : PackBannerGenerator.GetOrCreate(path); result.Add(new() { Name = name, FullPath = path, PreviewPath = preview, PreviewImage = shader ? LoadThumbnail(preview, 360) : LoadCroppedPackIcon(preview, 128), BannerImage = LoadThumbnail(banner, 720), IsFontBanner = !string.IsNullOrWhiteSpace(banner), Description = shader ? "光影效果预览" : MinecraftConfig.ReadPackDescription(path) }); }
+        { var name = Path.GetFileName(path); var preview = shader && settings.ShaderPreviews.TryGetValue(name, out var saved) ? saved : shader ? FindSidecarPreview(path) : MinecraftConfig.ExtractPackPreview(path); var banner = shader ? "" : PackBannerGenerator.GetOrCreate(path); var description = shader ? "光影效果预览" : MinecraftConfig.ReadPackDescription(path); var compatibility = shader || string.IsNullOrWhiteSpace(instance) ? "" : MinecraftConfig.GetResourcePackCompatibility(instance, path); result.Add(new() { Name = name, FullPath = path, PreviewPath = preview, PreviewImage = shader ? LoadThumbnail(preview, 360) : LoadCroppedPackIcon(preview, 128), BannerImage = LoadThumbnail(banner, 720), IsFontBanner = !string.IsNullOrWhiteSpace(banner), CompatibilityNotice = compatibility, Description = string.IsNullOrWhiteSpace(compatibility) ? description : compatibility + "\n" + description }); }
         return result;
     }
     private static string FindSidecarPreview(string shaderPath) { var dir = Path.GetDirectoryName(shaderPath) ?? ""; var stem = Path.GetFileNameWithoutExtension(shaderPath); foreach (var ext in new[] { ".png", ".jpg", ".jpeg", ".webp" }) { var image = Path.Combine(dir, stem + ext); if (File.Exists(image)) return image; } return ""; }
@@ -675,7 +676,7 @@ public partial class MainWindow : Window
     private void EnsureKeyProfiles()
     {
         if (settings.KeyProfiles.Count == 0) settings.KeyProfiles["默认键位"] = new KeyProfile { ModBindings = settings.ModKeyProfiles.ToDictionary(x => x.Key, x => new Dictionary<string, string>(x.Value, StringComparer.Ordinal), StringComparer.OrdinalIgnoreCase) };
-        foreach (var profile in settings.KeyProfiles.Values) profile.ConflictExcluded ??= new HashSet<string>(StringComparer.Ordinal);
+        foreach (var profile in settings.KeyProfiles.Values) { profile.ConflictExcluded ??= new HashSet<string>(StringComparer.Ordinal); profile.SemanticBindings ??= []; }
         if (!settings.KeyProfiles.ContainsKey(settings.ActiveKeyProfile)) settings.ActiveKeyProfile = settings.KeyProfiles.Keys.First();
     }
     private void RefreshKeyProfileSelector() { if (keyProfileCombo == null) return; switchingKeyProfile = true; keyProfileCombo.ItemsSource = settings.KeyProfiles.Keys.Order().ToList(); keyProfileCombo.SelectedItem = settings.ActiveKeyProfile; switchingKeyProfile = false; if (keyProfileManagerButton != null) keyProfileManagerButton.Content = $"键位方案：{settings.ActiveKeyProfile}  ▼"; }
@@ -687,7 +688,7 @@ public partial class MainWindow : Window
     }
     private void ApplyKeyProfileDraft()
     {
-        settings.KeyProfiles.TryGetValue(settings.ActiveKeyProfile, out var profile); foreach (var key in allKeys) { key.Value = key.OriginalValue; key.Remember = false; key.CountsAsConflict = profile?.ConflictExcluded.Contains(key.OptionKey) != true; if (profile?.ModBindings.TryGetValue(key.ModId, out var map) == true && map.TryGetValue(key.OptionKey, out var value)) { key.Value = value; key.Remember = true; } } BuildKeyboard(); RefreshKeyList();
+        settings.KeyProfiles.TryGetValue(settings.ActiveKeyProfile, out var profile); foreach (var key in allKeys) { key.Value = key.OriginalValue; key.Remember = false; key.CountsAsConflict = profile?.ConflictExcluded.Contains(key.OptionKey) != true; if (TryGetProfileBinding(profile, key, out var value)) { key.Value = value; key.Remember = true; } } BuildKeyboard(); RefreshKeyList();
     }
     private void AddKeyProfile_Click(object? sender, RoutedEventArgs e)
     {
@@ -705,8 +706,25 @@ public partial class MainWindow : Window
     }
     private void SaveKeyProfile_Click(object? sender, RoutedEventArgs e)
     {
-        var profile = new KeyProfile { ConflictExcluded = allKeys.Where(k => !k.CountsAsConflict).Select(k => k.OptionKey).ToHashSet(StringComparer.Ordinal) }; foreach (var group in allKeys.Where(k => k.Remember).GroupBy(k => k.ModId)) profile.ModBindings[group.Key] = group.ToDictionary(k => k.OptionKey, k => k.Value, StringComparer.Ordinal); settings.KeyProfiles[settings.ActiveKeyProfile] = profile; settings.ModKeyProfiles = profile.ModBindings.ToDictionary(x => x.Key, x => new Dictionary<string, string>(x.Value, StringComparer.Ordinal), StringComparer.OrdinalIgnoreCase); SettingsStore.Save(settings); if (keyProfileCombo != null) keyProfileCombo.ToolTip = null; StatusText.Text = $"已保存键位配置：{settings.ActiveKeyProfile}";
+        var profile = new KeyProfile { ConflictExcluded = allKeys.Where(k => !k.CountsAsConflict).Select(k => k.OptionKey).ToHashSet(StringComparer.Ordinal) };
+        foreach (var group in allKeys.Where(k => k.Remember).GroupBy(k => k.ModId)) profile.ModBindings[group.Key] = group.ToDictionary(k => k.OptionKey, k => k.Value, StringComparer.Ordinal);
+        profile.SemanticBindings = allKeys.Where(k => k.Remember).Select(k => new KeyBindingSnapshot { ModId = k.ModId, OptionKey = k.OptionKey, FunctionEnglish = k.FunctionEnglish, FunctionChinese = k.FunctionChinese, Value = k.Value }).ToList();
+        settings.KeyProfiles[settings.ActiveKeyProfile] = profile; settings.ModKeyProfiles = profile.ModBindings.ToDictionary(x => x.Key, x => new Dictionary<string, string>(x.Value, StringComparer.Ordinal), StringComparer.OrdinalIgnoreCase); SettingsStore.Save(settings); if (keyProfileCombo != null) keyProfileCombo.ToolTip = null; StatusText.Text = $"已保存键位配置：{settings.ActiveKeyProfile}";
     }
+
+    private static bool TryGetProfileBinding(KeyProfile? profile, KeyBindingItem target, out string value)
+    {
+        value = ""; if (profile == null) return false;
+        if (profile.ModBindings.TryGetValue(target.ModId, out var exact) && exact.TryGetValue(target.OptionKey, out var exactValue)) { value = exactValue; return true; }
+        var targetEnglish = NormalizeBindingLabel(target.FunctionEnglish); var targetChinese = NormalizeBindingLabel(target.FunctionChinese);
+        var match = (profile.SemanticBindings ?? []).FirstOrDefault(saved =>
+            (saved.ModId.Equals(target.ModId, StringComparison.OrdinalIgnoreCase) || NormalizeBindingLabel(saved.ModId) == NormalizeBindingLabel(target.ModId))
+            && ((!string.IsNullOrWhiteSpace(targetEnglish) && NormalizeBindingLabel(saved.FunctionEnglish) == targetEnglish)
+                || (!string.IsNullOrWhiteSpace(targetChinese) && NormalizeBindingLabel(saved.FunctionChinese) == targetChinese)));
+        if (match == null) return false; value = match.Value; return true;
+    }
+
+    private static string NormalizeBindingLabel(string? value) => Regex.Replace((value ?? "").ToLowerInvariant(), @"[^\p{L}\p{N}]", "");
     private void PackProfile_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
         if (switchingProfile || packProfileCombo?.SelectedItem is not string name || name == settings.ActivePackProfile) return;
@@ -911,7 +929,7 @@ public partial class MainWindow : Window
             }
         }
     }
-    private string ApplyResourcePacksOnly() { MinecraftConfig.MirrorLibrary(settings.PackLibrary, Path.Combine(instance, "resourcepacks")); MinecraftConfig.PatchOptions(instance, new Dictionary<string, string>(StringComparer.Ordinal) { ["resourcePacks"] = MinecraftConfig.ResourcePackValue(packs) }); return "资源包"; }
+    private string ApplyResourcePacksOnly() { MinecraftConfig.MirrorLibrary(settings.PackLibrary, Path.Combine(instance, "resourcepacks")); MinecraftConfig.PatchOptions(instance, new Dictionary<string, string>(StringComparer.Ordinal) { ["resourcePacks"] = MinecraftConfig.ResourcePackValue(instance, packs) }); return "资源包"; }
     private string ApplyShadersOnly()
     {
         if (string.IsNullOrWhiteSpace(draftSelectedShader)) throw new InvalidOperationException("当前没有选择要应用的光影包。");
@@ -940,6 +958,7 @@ public partial class MainWindow : Window
         var hasOculus = ids.Contains("oculus");
         if (hasIris && hasOculus) throw new InvalidOperationException("当前实例同时检测到 Iris 与 Oculus，两者不应同时安装，请先移除其中一个。");
         var loader = DetectInstanceEnvironment().Loader;
+        if (loader == "未识别") throw new InvalidOperationException("无法识别当前实例的 Mod 加载器。为避免写错光影配置，本次未覆盖。");
         if (hasIris)
         {
             if (loader.Equals("Forge", StringComparison.OrdinalIgnoreCase)) throw new InvalidOperationException("Forge 实例检测到了 Iris，请改用 Oculus。");

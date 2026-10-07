@@ -16,6 +16,7 @@ public class PackItem : INotifyPropertyChanged
     public BitmapSource? BannerImage { get; set; }
     public bool IsFontBanner { get; set; }
     public string Description { get; set; } = "暂无资源包说明";
+    public string CompatibilityNotice { get; set; } = "";
     public bool Enabled { get => _enabled; set { _enabled = value; OnChanged(); } }
     public event PropertyChangedEventHandler? PropertyChanged;
     private void OnChanged([CallerMemberName] string? name = null) => PropertyChanged?.Invoke(this, new(name));
@@ -81,6 +82,7 @@ public class AppSettings
     public string WebDavPasswordProtected { get; set; } = "";
     public string WebDavRemotePath { get; set; } = "MCProfileStudio";
     public DateTimeOffset? LastWebDavBackup { get; set; }
+    public bool IncludeLibrariesInCloudBackup { get; set; }
 }
 
 public class FavoriteModProfile
@@ -138,6 +140,16 @@ public class KeyProfile
 {
     public Dictionary<string, Dictionary<string, string>> ModBindings { get; set; } = new(StringComparer.OrdinalIgnoreCase);
     public HashSet<string> ConflictExcluded { get; set; } = new(StringComparer.Ordinal);
+    public List<KeyBindingSnapshot> SemanticBindings { get; set; } = [];
+}
+
+public class KeyBindingSnapshot
+{
+    public string ModId { get; set; } = "";
+    public string OptionKey { get; set; } = "";
+    public string FunctionEnglish { get; set; } = "";
+    public string FunctionChinese { get; set; } = "";
+    public string Value { get; set; } = "";
 }
 
 public class ModInfo
